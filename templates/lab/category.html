@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% from "lab/_nav.html" import lab_nav %}
+{% block title %}Pentest Lab — {{ meta.label }}{% endblock %}
+{% block page_title %}{{ meta.label }}{% endblock %}
+{% block sidebar_nav %}{{ lab_nav(category) }}{% endblock %}
+
+{% block topbar_right %}
+<span class="topbar-badge">{{ tools|length }} tools in this category</span>
+<a href="{{ url_for('export_pentest') }}" class="topbar-btn">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+  Export
+</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- Tool Cards Grid -->
+<div class="lab-tools-grid">
+  {% for tool_id, tool in tools.items() %}
+  <div class="lab-tool-card" id="card-{{ tool_id }}">
+    <div class="lab-tool-header">
+      <div class="lab-tool-meta">
+        <div class="lab-tool-name">{{ tool.name }}</div>
+        <div class="lab-tool-desc muted-text small-text">{{ tool.desc }}</div>
+      </div>
+      <div class="lab-tool-badges">
+        <span class="badge badge-{{ tool.color }}">{{ tool.category }}</span>
+        <a href="{{ tool.github }}" target="_blank" class="topbar-btn" style="padding:4px 8px;font-size:11px">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 00-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0020 4.77 5.07 5.07 0 0019.91 1S18.73.65 16 2.48a13.38 13.38 0 00-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 005 4.77a5.44 5.44 0 00-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 009 18.13V22"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+
+    <div class="lab-tool-install">
+      <code class="mono small-text" style="color:#818cf8">$ {{ tool.install }}</code>
+    </div>
+
+    <!-- Target Input -->
+    <div class="lab-tool-run">
+      <div style="display:flex;gap:10px;align-items:flex-end">
+        <div style="flex:1">
+          <label class="field-label">Target</label>
+          <input type="text" class="field-input dark-input" id="target-{{ tool_id }}"
+            placeholder="{% if category=='social' %}domain.com or email@target.com{% elif category=='osint' %}domain.com or IP{% else %}IP address or domain{% endif %}"
+            style="margin-top:4px"/>
+        </div>
+        <button class="launch-btn" style="width:auto;padding:10px 20px;margin-bottom:0"
+          id="btn-{{ tool_id }}" onclick="runTool('{{ tool_id }}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Run
+        </button>
+      </div>
+      <div style="margin-top:10px">
+        <label class="checkbox-label">
+          <input type="checkbox" class="checkbox-input" id="auth-{{ tool_id }}">
+          <span class="checkbox-custom"></span>
+          <span class="checkbox-text">I confirm I have written authorization to test this target.</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Output Console -->
+    <div class="lab-tool-output hidden" id="output-wrap-{{ tool_id }}">
+      <div class="lab-output-header">
+        <span id="output-status-{{ tool_id }}" class="muted-text small-text">Running...</span>
+        <button onclick="clearOutput('{{ tool_id }}')" class="topbar-btn" style="padding:3px 8px;font-size:11px">Clear</button>
+      </div>
+      <pre class="console-output" id="output-{{ tool_id }}" style="max-height:320px;font-size:12px">Waiting...</pre>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Recent Jobs for this category -->
+{% if jobs %}
+<div class="card card-dark" style="margin-top:24px">
+  <div class="card-head card-head-dark"><span>Recent {{ meta.label }} Jobs</span></div>
+  <div class="card-body p0">
+    <table class="data-table data-table-dark">
+      <thead><tr><th>Job ID</th><th>Tool</th><th>Target</th><th>Status</th><th>Time</th></tr></thead>
+      <tbody>
+        {% for j in jobs %}
+        <tr>
+          <td class="mono muted-text small-text">{{ j.job_id }}</td>
+          <td><span class="badge badge-blue">{{ j.tool }}</span></td>
+          <td><code class="mono small-text">{{ j.target }}</code></td>
+          <td>{% if j.status=='completed' %}<span class="badge badge-green">✓ Done</span>{% elif j.status=='running' %}<span class="badge badge-amber">⟳ Running</span>{% else %}<span class="badge badge-red">✗ Failed</span>{% endif %}</td>
+          <td class="muted-text small-text">{{ j.started_at.strftime('%H:%M:%S') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const activeJobs = {};
+
+function runTool(toolId) {
+  const target = document.getElementById(`target-${toolId}`).value.trim();
+  const auth   = document.getElementById(`auth-${toolId}`).checked;
+  const btn    = document.getElementById(`btn-${toolId}`);
+  const wrap   = document.getElementById(`output-wrap-${toolId}`);
+  const output = document.getElementById(`output-${toolId}`);
+  const status = document.getElementById(`output-status-${toolId}`);
+
+  if (!auth) { alert('Please confirm authorization first.'); return; }
+  if (!target) { alert('Please enter a target.'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<svg class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-18 0"/></svg> Running...';
+  wrap.classList.remove('hidden');
+  output.textContent = `[*] Launching ${toolId} against ${target}...\n[*] Please wait...`;
+  status.textContent = '⟳ Running...';
+  status.style.color = '#fbbf24';
+
+  fetch('/api/pentest/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({tool: toolId, target: target, authorized: auth})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.status === 'success') {
+      activeJobs[toolId] = d.job_id;
+      pollJob(toolId, d.job_id, btn);
+    } else {
+      output.textContent = `[ERROR] ${d.message}`;
+      status.textContent = '✗ Error';
+      status.style.color = '#f87171';
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run';
+    }
+  })
+  .catch(() => {
+    output.textContent = '[ERROR] Network failure.';
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run';
+  });
+}
+
+function pollJob(toolId, jobId, btn) {
+  const output = document.getElementById(`output-${toolId}`);
+  const status = document.getElementById(`output-status-${toolId}`);
+  let dots = 0;
+
+  const interval = setInterval(() => {
+    dots = (dots + 1) % 4;
+    const d = '.'.repeat(dots);
+    if (output.textContent.startsWith('[*]')) {
+      output.textContent = `[*] Running${d}\n[*] Executing tool against target...\n[*] Waiting for results${d}`;
+    }
+
+    fetch(`/api/pentest/status/${jobId}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.status === 'completed') {
+          clearInterval(interval);
+          output.textContent = d.output || '[No output]';
+          status.textContent = '✓ Completed';
+          status.style.color = '#4ade80';
+          btn.disabled = false;
+          btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run Again';
+          output.scrollTop = output.scrollHeight;
+        } else if (d.status === 'failed') {
+          clearInterval(interval);
+          output.textContent = d.output || '[Job failed]';
+          status.textContent = '✗ Failed';
+          status.style.color = '#f87171';
+          btn.disabled = false;
+          btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Retry';
+        }
+      });
+  }, 1000);
+}
+
+function clearOutput(toolId) {
+  const wrap = document.getElementById(`output-wrap-${toolId}`);
+  const output = document.getElementById(`output-${toolId}`);
+  wrap.classList.add('hidden');
+  output.textContent = '';
+}
+</script>
+{% endblock %}

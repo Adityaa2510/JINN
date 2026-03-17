@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>SecOps AI — Select Mode</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <style>
+    .selection-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; }
+    .selection-container { max-width:1200px; }
+    @media(max-width:960px){ .selection-grid { grid-template-columns:1fr 1fr; } }
+    @media(max-width:580px){ .selection-grid { grid-template-columns:1fr; } }
+    .mode-pentest { background:#0a0f18; border-color:rgba(239,68,68,.25); }
+    .mode-pentest:hover { box-shadow:0 20px 60px rgba(239,68,68,.15); transform:translateY(-6px); }
+    .mode-pentest .mode-card-stripe { background:#ef4444; }
+    .mode-pentest h2 { color:#f1f5f9; }
+    .mode-pentest p  { color:#94a3b8; }
+    .mode-pentest .mode-card-cta { color:#f87171; }
+    .mode-pentest-icon { background:rgba(239,68,68,.1); color:#f87171; border:1px solid rgba(239,68,68,.2); }
+  </style>
+</head>
+<body class="selection-body">
+<div class="selection-container">
+  <div class="selection-header">
+    <div class="selection-eyebrow">SecOps AI Platform</div>
+    <h1>Select Operational Mode</h1>
+    <p>The AI agent adapts its toolset, posture, and interface to your environment.</p>
+  </div>
+
+  <div class="selection-grid">
+
+    <!-- Individual Mode -->
+    <a href="{{ url_for('set_mode', mode='individual') }}" class="mode-card mode-individual">
+      <div class="mode-card-stripe"></div>
+      <div class="mode-card-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+          <line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/>
+          <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
+        </svg>
+      </div>
+      <div class="mode-card-content">
+        <h2>Individual Security Assistant</h2>
+        <p>Red Team AI with offensive simulation, 8 recon tools, and educational vulnerability pathways.</p>
+        <div class="mode-card-tools">
+          <span class="tool-chip">Nmap</span><span class="tool-chip">Nikto</span>
+          <span class="tool-chip">theHarvester</span><span class="tool-chip">Shodan</span>
+          <span class="tool-chip">OpenVAS</span><span class="tool-chip">Recon-ng</span>
+        </div>
+      </div>
+      <div class="mode-card-cta">Initialize Red Team AI
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </div>
+    </a>
+
+    <!-- Organization Mode -->
+    <a href="{{ url_for('set_mode', mode='organization') }}" class="mode-card mode-organization">
+      <div class="mode-card-stripe"></div>
+      <div class="mode-card-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/>
+          <line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/>
+          <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
+          <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/>
+          <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
+        </svg>
+      </div>
+      <div class="mode-card-content">
+        <h2>Organization SecOps Platform</h2>
+        <p>Enterprise SOC with SIEM correlation, 6 live tool integrations, Prowler cloud security, and AI orchestration.</p>
+        <div class="mode-card-tools">
+          <span class="tool-chip chip-dark">Splunk</span><span class="tool-chip chip-dark">CrowdStrike</span>
+          <span class="tool-chip chip-dark">Tenable</span><span class="tool-chip chip-dark">Sentinel</span>
+          <span class="tool-chip chip-dark">ServiceNow</span><span class="tool-chip chip-dark">Prowler</span>
+        </div>
+      </div>
+      <div class="mode-card-cta">Launch Enterprise Platform
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </div>
+    </a>
+
+    <!-- Pentest Lab Mode -->
+    <a href="{{ url_for('set_mode', mode='pentest') }}" class="mode-card mode-pentest">
+      <div class="mode-card-stripe"></div>
+      <div class="mode-card-icon mode-pentest-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </div>
+      <div class="mode-card-content">
+        <h2>Pentest Lab</h2>
+        <p>22 offensive security tools across Web, Network, OSINT, Social Engineering, and Red Team. Real subprocess + simulated fallback.</p>
+        <div class="mode-card-tools">
+          <span class="tool-chip chip-dark">SQLMap</span><span class="tool-chip chip-dark">Metasploit</span>
+          <span class="tool-chip chip-dark">Nuclei</span><span class="tool-chip chip-dark">Sliver C2</span>
+          <span class="tool-chip chip-dark">Evilginx2</span><span class="tool-chip chip-dark">+17 more</span>
+        </div>
+      </div>
+      <div class="mode-card-cta">Enter Pentest Lab
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </div>
+    </a>
+
+  </div>
+
+  {% if current_user.role == 'admin' %}
+  <div class="selection-admin-link">
+    <a href="{{ url_for('admin_users') }}">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>
+      </svg>
+      Admin: User Management
+    </a>
+  </div>
+  {% endif %}
+</div>
+</body>
+</html>

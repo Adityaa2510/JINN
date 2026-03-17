@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>SecOps AI — Login</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head><body class="login-body">
+<div class="login-bg"><div class="login-grid"></div></div>
+<div class="login-container">
+  <div class="login-brand">
+    <div class="login-brand-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+    SecOps AI Platform
+  </div>
+  <div class="login-card">
+    <div class="login-card-header"><h2>Secure Access</h2><p>Authenticate to continue</p></div>
+    {% with messages=get_flashed_messages(with_categories=true) %}{% if messages %}{% for c,m in messages %}<div class="flash flash-{{c}}" style="margin-bottom:12px">{{m}}</div>{% endfor %}{% endif %}{% endwith %}
+    <form method="POST" class="login-form">
+      {{ form.hidden_tag() }}
+      <div class="field-group">
+        <label class="field-label">Username</label>
+        <div class="field-input-wrap"><svg class="field-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>{{ form.username(class="field-input has-icon",placeholder="Username",autocomplete="username") }}</div>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Password</label>
+        <div class="field-input-wrap"><svg class="field-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>{{ form.password(class="field-input has-icon",placeholder="Password",autocomplete="current-password") }}</div>
+      </div>
+      <button type="submit" class="launch-btn" style="margin-top:4px">Sign In</button>
+    </form>
+    <div class="login-hint"><span>Demo:</span> admin / SecureAdmin123!</div>
+  </div>
+</div>
+</body></html>

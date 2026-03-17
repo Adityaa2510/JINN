@@ -1,0 +1,162 @@
+{% extends "base.html" %}{% from "org/_nav.html" import org_nav %}
+{% block title %}SecOps AI — Integrations{% endblock %}{% block page_title %}Integration Ecosystem{% endblock %}
+{% block sidebar_nav %}{{ org_nav('integrations') }}{% endblock %}
+{% block content %}
+<p class="page-subtitle">Live working integrations — query real tool data via REST APIs and Webhooks.</p>
+
+<!-- Splunk -->
+<div class="card card-dark mb-4" id="splunk-panel">
+  <div class="card-head card-head-dark">
+    <div style="display:flex;align-items:center;gap:10px"><div class="int-icon i-pink" style="width:32px;height:32px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><span>Splunk SIEM</span><span class="pill-active">Active</span></div>
+    <span class="muted-text small-text">REST API · Log Forwarding</span>
+  </div>
+  <div class="card-body">
+    <div style="display:flex;gap:10px;margin-bottom:14px">
+      <input id="splunkQuery" class="field-input dark-input" style="flex:1" placeholder="Search logs: e.g. failed login, powershell, DNS..." value="failed login"/>
+      <button onclick="splunkSearch()" class="topbar-btn" style="background:#e8195b;color:#fff;border-color:#e8195b">Search Splunk</button>
+    </div>
+    <div id="splunkResults" class="console-output" style="min-height:120px;max-height:220px">Click Search to query Splunk logs...</div>
+  </div>
+</div>
+
+<!-- CrowdStrike -->
+<div class="card card-dark mb-4">
+  <div class="card-head card-head-dark">
+    <div style="display:flex;align-items:center;gap:10px"><div class="int-icon i-red" style="width:32px;height:32px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><span>CrowdStrike Falcon</span><span class="pill-active">Active</span></div>
+    <button onclick="loadCrowdStrike()" class="topbar-btn">Load Detections</button>
+  </div>
+  <div class="card-body p0"><div id="csResults"><div class="empty-state" style="padding:32px"><p>Click Load Detections to fetch EDR telemetry.</p></div></div></div>
+</div>
+
+<!-- Tenable -->
+<div class="card card-dark mb-4">
+  <div class="card-head card-head-dark">
+    <div style="display:flex;align-items:center;gap:10px"><div class="int-icon i-blue" style="width:32px;height:32px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div><span>Tenable Nessus</span><span class="pill-active">Active</span></div>
+    <button onclick="loadTenable()" class="topbar-btn">Load Scan Results</button>
+  </div>
+  <div class="card-body p0"><div id="tenableResults"><div class="empty-state" style="padding:32px"><p>Click Load Scan Results to fetch vulnerability data.</p></div></div></div>
+</div>
+
+<!-- Sentinel -->
+<div class="card card-dark mb-4">
+  <div class="card-head card-head-dark">
+    <div style="display:flex;align-items:center;gap:10px"><div class="int-icon i-amber" style="width:32px;height:32px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><span>Microsoft Sentinel</span><span class="pill-inactive">Config Required</span></div>
+    <button onclick="loadSentinel()" class="topbar-btn">Load Incidents</button>
+  </div>
+  <div class="card-body p0"><div id="sentinelResults"><div class="empty-state" style="padding:32px"><p>Click Load Incidents to fetch Sentinel data.</p></div></div></div>
+</div>
+
+<!-- QRadar -->
+<div class="card card-dark mb-4">
+  <div class="card-head card-head-dark">
+    <div style="display:flex;align-items:center;gap:10px"><div class="int-icon i-slate" style="width:32px;height:32px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></div><span>IBM QRadar</span><span class="pill-inactive">Disconnected</span></div>
+    <button onclick="loadQRadar()" class="topbar-btn">Load Offenses</button>
+  </div>
+  <div class="card-body p0"><div id="qradarResults"><div class="empty-state" style="padding:32px"><p>Click Load Offenses to fetch QRadar data.</p></div></div></div>
+</div>
+
+<!-- ServiceNow -->
+<div class="card card-dark mb-4">
+  <div class="card-head card-head-dark">
+    <div style="display:flex;align-items:center;gap:10px"><div class="int-icon i-green" style="width:32px;height:32px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12l2 2 4-4"/></svg></div><span>ServiceNow ITSM</span><span class="pill-active">Active</span></div>
+    <div style="display:flex;gap:8px"><button onclick="loadTickets()" class="topbar-btn">Load Tickets</button><button onclick="showCreateTicket()" class="topbar-btn" style="background:#6366f1;color:#fff;border-color:#6366f1">+ Create Ticket</button></div>
+  </div>
+  <div id="createTicketForm" class="card-body" style="display:none;border-bottom:1px solid var(--border)">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div><label class="field-label">Title</label><input id="ticketTitle" class="field-input dark-input" placeholder="Incident title"/></div>
+      <div><label class="field-label">Priority</label><select id="ticketPriority" class="field-select dark-select"><option>Critical</option><option>High</option><option selected>Medium</option><option>Low</option></select></div>
+    </div>
+    <div style="margin-top:12px"><label class="field-label">Description</label><input id="ticketDesc" class="field-input dark-input" placeholder="Describe the incident..."/></div>
+    <button onclick="createTicket()" class="launch-btn" style="margin-top:12px;max-width:200px">Create INC Ticket</button>
+  </div>
+  <div class="card-body p0"><div id="snowResults"><div class="empty-state" style="padding:32px"><p>Click Load Tickets to view ServiceNow incidents.</p></div></div></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}<script>
+function splunkSearch(){
+  const q=document.getElementById('splunkQuery').value;
+  const out=document.getElementById('splunkResults');
+  out.textContent='Searching Splunk...';
+  fetch('/api/splunk/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})})
+  .then(r=>r.json()).then(d=>{
+    if(d.status==='success'){
+      let txt=`Splunk Search: "${d.query}" | ${d.results.length} results | elapsed ${d.elapsed}\n${'─'.repeat(60)}\n`;
+      d.results.forEach(r=>{txt+=`[${r.severity}] ${r.time} | ${r.host} | ${r.source}\n${r.event}\n\n`;});
+      out.textContent=txt;
+    }
+  }).catch(()=>{out.textContent='Error contacting Splunk API.';});
+}
+
+function loadCrowdStrike(){
+  fetch('/api/crowdstrike/detections').then(r=>r.json()).then(d=>{
+    if(d.status!=='success')return;
+    let html='<table class="data-table data-table-dark"><thead><tr><th>ID</th><th>Host</th><th>Technique</th><th>IOC</th><th>Severity</th><th>Status</th></tr></thead><tbody>';
+    d.detections.forEach(det=>{html+=`<tr><td class="mono muted-text small-text">${det.id}</td><td><code class="mono">${det.host}</code></td><td class="small-text">${det.technique}</td><td class="mono small-text muted-text">${det.ioc}</td><td><span class="sev-badge sev-${det.severity.toLowerCase()}">${det.severity}</span></td><td><span class="status-badge status-${det.status.toLowerCase().replace(' ','-')}">${det.status}</span></td></tr>`;});
+    html+='</tbody></table>';
+    document.getElementById('csResults').innerHTML=html;
+  });
+}
+
+function loadTenable(){
+  fetch('/api/tenable/scans').then(r=>r.json()).then(d=>{
+    let html='<table class="data-table data-table-dark"><thead><tr><th>Host</th><th>CVE</th><th>CVSS</th><th>Severity</th><th>Plugin</th><th>Exploitable</th><th>Solution</th></tr></thead><tbody>';
+    d.results.forEach(r=>{html+=`<tr><td><code class="mono">${r.host}</code><div class="muted-text small-text">${r.ip}</div></td><td><code class="mono">${r.cve}</code></td><td><span class="cvss-badge cvss-${r.cvss>=9?'critical':r.cvss>=7?'high':'medium'}">${r.cvss}</span></td><td><span class="sev-badge sev-${r.severity.toLowerCase()}">${r.severity}</span></td><td class="small-text">${r.plugin}</td><td>${r.exploitable?'<span class="kev-tag">Yes</span>':'<span class="muted-text">No</span>'}</td><td class="small-text muted-text">${r.solution}</td></tr>`;});
+    html+='</tbody></table>';
+    document.getElementById('tenableResults').innerHTML=html;
+  });
+}
+
+function loadSentinel(){
+  fetch('/api/sentinel/incidents').then(r=>r.json()).then(d=>{
+    let html='<table class="data-table data-table-dark"><thead><tr><th>ID</th><th>Title</th><th>MITRE Tactics</th><th>Entities</th><th>Severity</th><th>Status</th></tr></thead><tbody>';
+    d.incidents.forEach(i=>{html+=`<tr><td class="mono muted-text small-text">${i.id}</td><td><div class="alert-title">${i.title}</div><div class="muted-text small-text">${i.created}</div></td><td class="small-text muted-text">${i.tactics}</td><td>${i.entities.map(e=>`<code class="mono small-text">${e}</code>`).join(' ')}</td><td><span class="sev-badge sev-${i.severity.toLowerCase()}">${i.severity}</span></td><td><span class="status-badge status-${i.status.toLowerCase()}">${i.status}</span></td></tr>`;});
+    html+='</tbody></table>';
+    document.getElementById('sentinelResults').innerHTML=html;
+  });
+}
+
+function loadQRadar(){
+  fetch('/api/qradar/offenses').then(r=>r.json()).then(d=>{
+    let html='<table class="data-table data-table-dark"><thead><tr><th>ID</th><th>Description</th><th>Magnitude</th><th>Events</th><th>Source</th><th>Category</th><th>Status</th></tr></thead><tbody>';
+    d.offenses.forEach(o=>{const m=o.magnitude;html+=`<tr><td class="mono muted-text">${o.id}</td><td class="small-text">${o.description}</td><td><span class="cvss-badge cvss-${m>=8?'critical':m>=6?'high':'medium'}">${m}/10</span></td><td class="muted-text small-text">${o.events} events</td><td class="mono small-text muted-text">${o.source}</td><td><span class="badge badge-slate">${o.category}</span></td><td><span class="status-badge status-${o.status.toLowerCase()}">${o.status}</span></td></tr>`;});
+    html+='</tbody></table>';
+    document.getElementById('qradarResults').innerHTML=html;
+  });
+}
+
+function loadTickets(){
+  fetch('/api/servicenow/tickets').then(r=>r.json()).then(d=>{
+    let html='<table class="data-table data-table-dark"><thead><tr><th>INC #</th><th>Title</th><th>Priority</th><th>Source</th><th>Assigned</th><th>Created</th><th>Status</th></tr></thead><tbody>';
+    if(d.tickets.length===0){html+='<tr><td colspan="7" class="empty-cell">No tickets yet.</td></tr>';}
+    d.tickets.forEach(t=>{html+=`<tr><td class="mono muted-text small-text">${t.inc_number}</td><td class="small-text">${t.title}</td><td><span class="sev-badge sev-${t.priority.toLowerCase()}">${t.priority}</span></td><td><span class="badge badge-slate">${t.source}</span></td><td class="small-text muted-text">${t.assigned_to}</td><td class="muted-text small-text">${t.created_at}</td><td><span class="status-badge status-${t.status.toLowerCase().replace(' ','-')}">${t.status}</span></td></tr>`;});
+    html+='</tbody></table>';
+    document.getElementById('snowResults').innerHTML=html;
+  });
+}
+
+function showCreateTicket(){
+  const f=document.getElementById('createTicketForm');
+  f.style.display=f.style.display==='none'?'block':'none';
+}
+
+function createTicket(){
+  const title=document.getElementById('ticketTitle').value;
+  const priority=document.getElementById('ticketPriority').value;
+  const desc=document.getElementById('ticketDesc').value;
+  if(!title){alert('Please enter a title.');return;}
+  fetch('/api/servicenow/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,priority,description:desc,source:'Manual'})})
+  .then(r=>r.json()).then(d=>{
+    if(d.status==='success'){
+      alert(`✅ Ticket created: ${d.inc_number}`);
+      document.getElementById('ticketTitle').value='';
+      document.getElementById('ticketDesc').value='';
+      document.getElementById('createTicketForm').style.display='none';
+      loadTickets();
+    }
+  });
+}
+
+// Auto-load splunk on page load
+document.addEventListener('DOMContentLoaded',()=>{splunkSearch();});
+</script>{% endblock %}

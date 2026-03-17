@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% from "org/_nav.html" import org_nav %}
+{% block title %}SecOps AI — Vulnerabilities{% endblock %}{% block page_title %}Vulnerability Intelligence{% endblock %}
+{% block sidebar_nav %}{{ org_nav('vulnerabilities') }}{% endblock %}
+{% block topbar_right %}<a href="{{ url_for('export_vulns') }}" class="topbar-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export</a>{% endblock %}
+{% block content %}
+<div class="filter-bar filter-bar-dark"><form method="GET" class="filter-form">
+  <div class="field-input-wrap" style="flex:1;max-width:300px"><svg class="field-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>{{ form.search(class="field-input has-icon dark-input",placeholder="Search vendor...") }}</div>
+  {{ form.severity(class="filter-select dark-select") }}<button type="submit" class="topbar-btn">Filter</button>
+</form><span class="filter-count">{{ vulns|length }} CVEs</span></div>
+<div class="card card-dark"><div class="card-body p0"><table class="data-table data-table-dark"><thead><tr><th>CVE ID</th><th>CVSS</th><th>Severity</th><th>Vendor</th><th>Description</th><th>Published</th></tr></thead><tbody>
+{% for v in vulns %}<tr><td><code class="mono">{{ v.cve_id }}</code>{% if v.is_kev %}<div class="kev-tag">⚠ KEV</div>{% endif %}</td><td><span class="cvss-badge cvss-{% if v.cvss_score>=9 %}critical{% elif v.cvss_score>=7 %}high{% elif v.cvss_score>=4 %}medium{% else %}low{% endif %}">{{ v.cvss_score }}</span></td><td><span class="sev-badge sev-{{ v.severity|lower }}">{{ v.severity }}</span></td><td class="small-text">{{ v.vendor_product }}</td><td class="small-text muted-text">{{ v.description[:90] }}...</td><td class="mono muted-text small-text">{{ v.published_date.strftime('%Y-%m-%d') }}</td></tr>
+{% else %}<tr><td colspan="6" class="empty-cell">No CVEs match filters.</td></tr>{% endfor %}
+</tbody></table></div></div>{% endblock %}

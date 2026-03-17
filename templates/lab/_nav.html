@@ -1,0 +1,32 @@
+{% macro lab_nav(active) %}
+<a href="{{ url_for('pentest_dashboard') }}" class="nav-link {% if active=='dashboard' %}nav-active{% endif %}">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+  Lab Overview
+</a>
+<div class="nav-divider">Categories</div>
+<a href="{{ url_for('pentest_category', category='web') }}" class="nav-link {% if active=='web' %}nav-active{% endif %}">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+  Web App Pentesting
+</a>
+<a href="{{ url_for('pentest_category', category='network') }}" class="nav-link {% if active=='network' %}nav-active{% endif %}">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+  Network Pentesting
+</a>
+<a href="{{ url_for('pentest_category', category='osint') }}" class="nav-link {% if active=='osint' %}nav-active{% endif %}">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+  OSINT & Recon
+</a>
+<a href="{{ url_for('pentest_category', category='social') }}" class="nav-link {% if active=='social' %}nav-active{% endif %}">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/></svg>
+  Social Engineering
+</a>
+<a href="{{ url_for('pentest_category', category='redteam') }}" class="nav-link {% if active=='redteam' %}nav-active{% endif %}">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  Red Team Operations
+</a>
+<div class="nav-divider">Reports</div>
+<a href="{{ url_for('export_pentest') }}" class="nav-link">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+  Export All Jobs CSV
+</a>
+{% endmacro %}

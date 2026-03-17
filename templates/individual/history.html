@@ -1,0 +1,11 @@
+{% extends "base.html" %}{% from "individual/_nav.html" import individual_nav %}
+{% block title %}RedTeam AI — History{% endblock %}{% block page_title %}Scan History{% endblock %}
+{% block sidebar_nav %}{{ individual_nav('history') }}{% endblock %}
+{% block topbar_right %}<a href="{{ url_for('export_scans') }}" class="topbar-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</a>{% endblock %}
+{% block content %}
+<div class="card"><div class="card-head"><span>Audit Trail</span><span class="badge badge-blue">{{ logs|length }} records</span></div>
+<div class="card-body p0">{% if logs %}
+<table class="data-table"><thead><tr><th>Timestamp</th><th>Target</th><th>Tool</th><th>Status</th><th>Preview</th></tr></thead><tbody>
+{% for l in logs %}<tr><td class="mono muted-text small-text">{{ l.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td><td><code class="mono">{{ l.target }}</code></td><td><span class="badge badge-blue">{{ l.tool_used }}</span></td><td><span class="badge badge-green">{{ l.status }}</span></td><td class="muted-text small-text">{{ (l.output_summary or '')[:80] }}...</td></tr>{% endfor %}
+</tbody></table>{% else %}<div class="empty-state"><p>No scan history yet.</p></div>{% endif %}
+</div></div>{% endblock %}

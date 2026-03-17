@@ -1,0 +1,242 @@
+{% extends "base.html" %}{% from "org/_nav.html" import org_nav %}
+{% block title %}SecOps AI — Prowler{% endblock %}{% block page_title %}Prowler Cloud Security{% endblock %}
+{% block sidebar_nav %}{{ org_nav('prowler') }}{% endblock %}
+{% block topbar_right %}
+<a href="{{ url_for('export_prowler') }}" class="topbar-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV</a>
+<a href="{{ url_for('prowler_chat') }}" class="topbar-btn" style="background:rgba(99,102,241,.15);color:#818cf8;border-color:rgba(99,102,241,.3)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>AI Analysis</a>
+{% endblock %}
+
+{% block content %}
+<!-- Scan Launcher -->
+<div class="card card-dark mb-4">
+  <div class="card-head card-head-dark">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:36px;height:36px;border-radius:9px;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);display:flex;align-items:center;justify-content:center;color:#818cf8">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      </div>
+      <div><div style="font-size:14px;font-weight:600;color:var(--text)">Prowler — Open Source Cloud Security</div><div class="muted-text small-text">Automated security checks across AWS, Azure & Kubernetes</div></div>
+    </div>
+    <span class="pill-active">pip install prowler ✓</span>
+  </div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end">
+      <div>
+        <label class="field-label">Cloud Provider</label>
+        <select id="prowlerProvider" class="field-select dark-select">
+          <option value="aws">AWS — Amazon Web Services</option>
+          <option value="azure">Azure — Microsoft Azure</option>
+          <option value="kubernetes">Kubernetes</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Scan Mode</label>
+        <select id="prowlerMode" class="field-select dark-select">
+          <option value="demo">Demo Scan (Mock Data — No Credentials)</option>
+          <option value="real">Real Scan (Requires Credentials)</option>
+        </select>
+      </div>
+      <div id="credFields" style="display:none">
+        <label class="field-label">AWS Access Key (optional)</label>
+        <input id="prowlerAccessKey" class="field-input dark-input" placeholder="AKIA..."/>
+      </div>
+      <div>
+        <button onclick="startProwlerScan()" id="prowlerBtn" class="launch-btn" style="white-space:nowrap">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Run Prowler Scan
+        </button>
+      </div>
+    </div>
+
+    <!-- Scan Status -->
+    <div id="scanStatus" class="hidden" style="margin-top:16px;padding:14px;background:var(--surface2);border-radius:10px;border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="statusIcon" style="width:8px;height:8px;border-radius:50%;background:#f59e0b;animation:pulse-anim 1s infinite"></div>
+        <span id="statusText" style="font-size:13px;color:var(--text2)">Prowler scan running...</span>
+        <span id="statusBadges" style="margin-left:auto;display:flex;gap:8px"></span>
+      </div>
+      <div id="scanProgress" style="margin-top:10px;height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+        <div id="progressBar" style="height:100%;background:#6366f1;width:0%;transition:width 0.5s;border-radius:2px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if latest %}
+<!-- ThreatScore + KPIs -->
+<div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
+  <div class="stat-card stat-card-dark" style="grid-column:span 1;position:relative;overflow:hidden">
+    <div style="position:absolute;top:-20px;right:-20px;width:80px;height:80px;border-radius:50%;background:{% if threat_score>=70 %}rgba(239,68,68,.08){% elif threat_score>=40 %}rgba(245,158,11,.08){% else %}rgba(34,197,94,.08){% endif %}"></div>
+    <div class="stat-label" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:{% if threat_score>=70 %}#f87171{% elif threat_score>=40 %}#fbbf24{% else %}#4ade80{% endif %}">ThreatScore™</div>
+    <div class="stat-value" style="font-size:36px;color:{% if threat_score>=70 %}#f87171{% elif threat_score>=40 %}#fbbf24{% else %}#4ade80{% endif %}">{{ threat_score }}</div>
+    <div class="muted-text small-text">{% if threat_score>=70 %}CRITICAL RISK{% elif threat_score>=40 %}HIGH RISK{% elif threat_score>=20 %}MEDIUM RISK{% else %}LOW RISK{% endif %}</div>
+  </div>
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-red"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="stat-value">{{ latest.total_fail }}</div><div class="stat-label">FAIL Checks</div></div>
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-green"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div><div class="stat-value">{{ latest.total_pass }}</div><div class="stat-label">PASS Checks</div></div>
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-amber"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></div><div class="stat-value">{{ latest.total_warn }}</div><div class="stat-label">WARN Checks</div></div>
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-purple"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/></svg></div><div class="stat-value">{{ latest.provider|upper }}</div><div class="stat-label">Provider · {{ latest.completed_at.strftime('%H:%M') if latest.completed_at else 'N/A' }}</div></div>
+</div>
+
+<!-- Compliance Frameworks -->
+<div class="card card-dark mb-4">
+  <div class="card-head card-head-dark"><span>Compliance Framework Scores</span><span class="muted-text small-text">Based on Prowler check results</span></div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+      {% for name,data in compliance.items() %}
+      {% set pct = ((data.pass / data.total) * 100)|int %}
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span style="font-size:13px;font-weight:700;color:var(--text)">{{ name }}</span>
+          <span style="font-size:18px;font-weight:800;color:{% if pct>=80 %}#4ade80{% elif pct>=60 %}#fbbf24{% else %}#f87171{% endif %}">{{ pct }}%</span>
+        </div>
+        <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:8px">
+          <div style="height:100%;width:{{ pct }}%;background:{% if pct>=80 %}#22c55e{% elif pct>=60 %}#f59e0b{% else %}#ef4444{% endif %};border-radius:3px;transition:width .8s"></div>
+        </div>
+        <div style="display:flex;gap:10px;font-size:11px">
+          <span style="color:#4ade80">✓ {{ data.pass }} pass</span>
+          <span style="color:#f87171">✗ {{ data.fail }} fail</span>
+          <span style="color:#fbbf24">~ {{ data.warn }} warn</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Findings Table -->
+<div class="card card-dark">
+  <div class="card-head card-head-dark">
+    <span>Security Findings ({{ findings|length }} checks)</span>
+    <div style="display:flex;gap:8px">
+      <button onclick="filterFindings('all')" class="topbar-btn" id="btn-all">All</button>
+      <button onclick="filterFindings('FAIL')" class="topbar-btn" id="btn-fail" style="color:#f87171;border-color:rgba(239,68,68,.3)">FAIL</button>
+      <button onclick="filterFindings('PASS')" class="topbar-btn" id="btn-pass" style="color:#4ade80;border-color:rgba(34,197,94,.3)">PASS</button>
+      <button onclick="filterFindings('WARN')" class="topbar-btn" id="btn-warn" style="color:#fbbf24;border-color:rgba(245,158,11,.3)">WARN</button>
+    </div>
+  </div>
+  <div class="card-body p0">
+    <table class="data-table data-table-dark" id="findingsTable">
+      <thead><tr><th>Check ID</th><th>Service</th><th>Severity</th><th>Status</th><th>Region</th><th>Resource</th><th>Description</th><th>Compliance</th></tr></thead>
+      <tbody>
+        {% for f in findings %}
+        <tr class="finding-row" data-status="{{ f.status }}">
+          <td><code class="mono small-text">{{ f.check_id }}</code></td>
+          <td><span class="badge badge-slate">{{ f.service }}</span></td>
+          <td><span class="sev-badge sev-{{ f.severity|lower }}">{{ f.severity|upper }}</span></td>
+          <td>
+            {% if f.status=='PASS' %}<span style="color:#4ade80;font-weight:700;font-size:12px">✓ PASS</span>
+            {% elif f.status=='FAIL' %}<span style="color:#f87171;font-weight:700;font-size:12px">✗ FAIL</span>
+            {% else %}<span style="color:#fbbf24;font-weight:700;font-size:12px">~ WARN</span>{% endif %}
+          </td>
+          <td class="mono muted-text small-text">{{ f.region }}</td>
+          <td class="mono muted-text small-text">{{ f.resource[:30] }}...</td>
+          <td class="small-text muted-text">{{ f.description[:70] }}...</td>
+          <td>{% for c in f.get('compliance',[])[:2] %}<span class="badge badge-indigo" style="font-size:10px;margin-right:2px">{{ c }}</span>{% endfor %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Scan History -->
+<div class="card card-dark" style="margin-top:20px">
+  <div class="card-head card-head-dark"><span>Scan History</span></div>
+  <div class="card-body p0">
+    <table class="data-table data-table-dark"><thead><tr><th>Scan ID</th><th>Provider</th><th>Started</th><th>Status</th><th>Pass</th><th>Fail</th><th>Warn</th></tr></thead><tbody>
+    {% for s in scans %}
+    <tr><td class="mono muted-text small-text">{{ s.scan_id }}</td><td><span class="badge badge-indigo">{{ s.provider|upper }}</span></td><td class="muted-text small-text">{{ s.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
+    <td><span class="status-badge status-{{ s.status }}">{{ s.status|title }}</span></td>
+    <td style="color:#4ade80;font-weight:600">{{ s.total_pass }}</td><td style="color:#f87171;font-weight:600">{{ s.total_fail }}</td><td style="color:#fbbf24;font-weight:600">{{ s.total_warn }}</td></tr>
+    {% else %}<tr><td colspan="7" class="empty-cell">No scans yet. Run your first Prowler scan above.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+
+{% else %}
+<!-- No scans yet -->
+<div class="card card-dark" style="margin-top:20px">
+  <div class="card-body" style="padding:80px 20px;text-align:center">
+    <div style="width:72px;height:72px;border-radius:50%;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.2);display:flex;align-items:center;justify-content:center;color:#818cf8;margin:0 auto 20px">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    </div>
+    <h3 style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px">No Prowler Scans Yet</h3>
+    <p style="color:var(--text2);font-size:13px;max-width:420px;margin:0 auto 24px;line-height:1.6">Select a cloud provider above and click <strong>Run Prowler Scan</strong>. Demo mode uses mock data so no credentials are needed.</p>
+    <button onclick="startProwlerScan()" class="launch-btn" style="display:inline-flex;max-width:220px">Run First Scan</button>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let activeScanId = null;
+let pollInterval = null;
+
+document.getElementById('prowlerMode').addEventListener('change', function(){
+  document.getElementById('credFields').style.display = this.value==='real' ? 'block' : 'none';
+});
+
+function startProwlerScan(){
+  const provider = document.getElementById('prowlerProvider').value;
+  const mode     = document.getElementById('prowlerMode').value;
+  const btn      = document.getElementById('prowlerBtn');
+  const status   = document.getElementById('scanStatus');
+  const progress = document.getElementById('progressBar');
+  const creds    = mode==='real' ? {access_key: document.getElementById('prowlerAccessKey')?.value || ''} : {};
+
+  btn.disabled = true;
+  btn.innerHTML = '<svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-18 0"/></svg> Scanning...';
+  status.classList.remove('hidden');
+  document.getElementById('statusText').textContent = `Prowler scanning ${provider.toUpperCase()}... (this takes ~5 seconds)`;
+  progress.style.width = '10%';
+
+  fetch('/prowler/scan', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({provider, credentials: creds})})
+  .then(r => r.json()).then(d => {
+    if(d.status === 'success'){
+      activeScanId = d.scan_id;
+      pollScanStatus();
+    }
+  }).catch(() => {
+    btn.disabled=false;
+    btn.innerHTML='Run Prowler Scan';
+    status.classList.add('hidden');
+  });
+}
+
+function pollScanStatus(){
+  let prog = 10;
+  pollInterval = setInterval(() => {
+    if(!activeScanId) return;
+    prog = Math.min(prog + 12, 90);
+    document.getElementById('progressBar').style.width = prog + '%';
+
+    fetch(`/prowler/status/${activeScanId}`).then(r=>r.json()).then(d=>{
+      if(d.status === 'completed'){
+        clearInterval(pollInterval);
+        document.getElementById('progressBar').style.width = '100%';
+        document.getElementById('statusIcon').style.background = '#22c55e';
+        document.getElementById('statusIcon').style.animation = 'none';
+        document.getElementById('statusText').textContent = `✓ Scan complete — ${d.fail} failures, ${d.pass} passed, ${d.warn} warnings`;
+        document.getElementById('statusBadges').innerHTML =
+          `<span style="color:#f87171;font-size:12px;font-weight:700">${d.fail} FAIL</span>
+           <span style="color:#4ade80;font-size:12px;font-weight:700">${d.pass} PASS</span>`;
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    });
+  }, 1000);
+}
+
+function filterFindings(filter){
+  const rows = document.querySelectorAll('.finding-row');
+  rows.forEach(row => {
+    row.style.display = (filter==='all' || row.dataset.status===filter) ? '' : 'none';
+  });
+  ['all','fail','pass','warn'].forEach(f => {
+    const btn = document.getElementById(`btn-${f}`);
+    if(btn) btn.style.opacity = (f===filter||filter==='all'&&f==='all') ? '1' : '0.5';
+  });
+}
+</script>
+{% endblock %}

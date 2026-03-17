@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% from "individual/_nav.html" import individual_nav %}
+{% block title %}RedTeam AI — Scan{% endblock %}{% block page_title %}Security Scanner{% endblock %}
+{% block sidebar_nav %}{{ individual_nav('scan') }}{% endblock %}
+{% block content %}
+<div class="content-grid-2">
+  <div class="card"><div class="card-head"><span>Scan Configuration</span></div><div class="card-body">
+    <form method="POST" id="scanForm">{{ form.hidden_tag() }}
+      <div class="field-group"><label class="field-label">Target IP or Domain</label>
+        <div class="field-input-wrap"><svg class="field-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>{{ form.target(class="field-input has-icon",placeholder="e.g. 192.168.1.5 or example.com",id="targetInput") }}</div>
+        {% if form.target.errors %}<div class="field-error">{{ form.target.errors[0] }}</div>{% endif %}
+      </div>
+      <div class="field-group"><label class="field-label">Select Tool</label>{{ form.tool(class="field-select",id="toolSelect") }}</div>
+      <div class="tool-info-box"><div class="tool-info-title" id="toolInfoTitle"></div><div class="tool-info-desc" id="toolInfoDesc"></div></div>
+      <div class="auth-confirm"><label class="checkbox-label">{{ form.authorized(class="checkbox-input") }}<span class="checkbox-custom"></span><span class="checkbox-text"><strong>Legal Declaration:</strong> I confirm I have explicit written permission to test this target.</span></label>{% if form.authorized.errors %}<div class="field-error">{{ form.authorized.errors[0] }}</div>{% endif %}</div>
+      <button type="submit" class="launch-btn" id="launchBtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Launch Scan</button>
+    </form>
+  </div></div>
+  <div class="card card-console"><div class="card-head card-head-dark"><span>Console Output</span>{% if result %}<span class="badge badge-green">Complete</span>{% endif %}</div>
+  <div class="card-body p0">
+    {% if result %}<div class="console-meta"><span>Target: <strong>{{ target }}</strong></span><span>Tool: <strong>{{ tool_name }}</strong></span></div><pre class="console-output">{{ result }}</pre>
+    {% else %}<div class="console-idle"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><p>Awaiting scan...</p></div>{% endif %}
+  </div></div>
+</div>
+{% endblock %}
+{% block extra_js %}<script>
+const toolDesc={'nmap':['Nmap — Network Port Discovery','Fast TCP scanner. Identifies open ports and services.'],'recon':['Whois / DNS Recon','Domain registration, DNS records, IP resolution.'],'nikto':['Nikto — Web Vulnerability Scanner','Scans for dangerous files, outdated software, misconfigs.'],'openvas':['OpenVAS — Full Assessment','Comprehensive CVE scan with CVSS scores.'],'shodan':['Shodan — Infrastructure Intelligence','Indexed banners, open ports, known CVEs.'],'harvester':['theHarvester — OSINT','Emails, subdomains, IPs from public sources.'],'recon_ng':['Recon-ng — OSINT Framework','Modular recon: hosts, contacts, XSS discovery.'],'dorks':['Google Dorks','Google operators for exposed files, admin panels, config leaks.']};
+const sel=document.getElementById('toolSelect'),tit=document.getElementById('toolInfoTitle'),desc=document.getElementById('toolInfoDesc');
+function upd(){const d=toolDesc[sel.value]||['',''];tit.textContent=d[0];desc.textContent=d[1];}
+sel.addEventListener('change',upd);upd();
+const p=new URLSearchParams(window.location.search);if(p.get('tool')){sel.value=p.get('tool');upd();}
+document.getElementById('scanForm').addEventListener('submit',function(){const b=document.getElementById('launchBtn');b.innerHTML='<svg class="spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-18 0"/></svg> Scanning...';b.disabled=true;});
+</script>{% endblock %}

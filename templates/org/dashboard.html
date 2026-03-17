@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% from "org/_nav.html" import org_nav %}
+{% block title %}SecOps AI — SOC Overview{% endblock %}{% block page_title %}SOC Overview{% endblock %}
+{% block sidebar_nav %}{{ org_nav('dashboard') }}{% endblock %}
+{% block topbar_right %}<div class="topbar-badge badge-pink"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Splunk: Live</div><div class="topbar-badge badge-blue-dark"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>NVD Synced</div>{% endblock %}
+{% block content %}
+<div class="stats-row">
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-red"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></div><div class="stat-value">{{ alert_count }}</div><div class="stat-label">Open Alerts</div></div>
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div class="stat-value">{{ critical_count }}</div><div class="stat-label">Critical Severity</div></div>
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div class="stat-value">{{ asset_count }}</div><div class="stat-label">Managed Assets</div></div>
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-amber"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div class="stat-value">{{ vuln_count }}</div><div class="stat-label">High+ CVEs</div></div>
+  <div class="stat-card stat-card-dark" style="grid-column:span 1"><div class="stat-icon stat-green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg></div><div class="stat-value">{{ ticket_count }}</div><div class="stat-label">SNOW Tickets</div></div>
+</div>
+<div class="content-grid-2">
+  <div class="card card-dark"><div class="card-head card-head-dark"><span>Live Alert Feed</span><a href="{{ url_for('org_alerts') }}" class="card-action-dark">All →</a></div>
+  <div class="card-body p0"><table class="data-table data-table-dark"><thead><tr><th>Alert</th><th>Source</th><th>Severity</th><th>Status</th></tr></thead><tbody>
+  {% for a in recent_alerts %}<tr><td><div class="alert-title">{{ a.title }}</div><div class="muted-text small-text">{{ a.host }}</div></td><td><span class="source-badge source-{{ a.source|lower|replace(' ','') }}">{{ a.source }}</span></td><td><span class="sev-badge sev-{{ a.severity|lower }}">{{ a.severity }}</span></td><td><span class="status-badge status-{{ a.status|lower }}">{{ a.status }}</span></td></tr>{% endfor %}
+  </tbody></table></div></div>
+  <div class="card card-dark"><div class="card-head card-head-dark"><span>Integration Health</span><a href="{{ url_for('org_integrations') }}" class="card-action-dark">Manage →</a></div>
+  <div class="card-body"><div class="integration-status-list">
+    {% for name,status,color in [('Splunk SIEM','Active','pink'),('CrowdStrike Falcon','Active','red'),('Tenable Nessus','Active','blue'),('Microsoft Sentinel','Config Required','amber'),('IBM QRadar','Disconnected','slate'),('ServiceNow ITSM','Active','green'),('Prowler Cloud','Active','purple')] %}
+    <div class="int-status-row"><div class="int-status-dot int-dot-{{ color }}"></div><div class="int-status-name">{{ name }}</div><div class="int-status-pill {% if status=='Active' %}pill-active{% else %}pill-inactive{% endif %}">{{ status }}</div></div>{% endfor %}
+  </div></div></div>
+</div>
+<div class="cta-banner cta-indigo"><div class="cta-text"><strong>SOC Orchestration AI</strong><span>Ask the AI to correlate SIEM alerts, investigate CVEs, assess business impact, or generate remediation playbooks.</span></div><a href="{{ url_for('org_chat') }}" class="cta-btn cta-btn-indigo">Open AI Console →</a></div>
+{% endblock %}

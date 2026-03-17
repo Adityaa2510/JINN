@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "lab/_nav.html" import lab_nav %}
+{% block title %}Pentest Lab — Dashboard{% endblock %}
+{% block page_title %}Pentest Lab{% endblock %}
+{% block sidebar_nav %}{{ lab_nav('dashboard') }}{% endblock %}
+
+{% block topbar_right %}
+<div class="topbar-badge" style="color:#f87171">
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+  Red Team Mode
+</div>
+<div class="topbar-badge" style="color:#4ade80">
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+  {{ tool_count }} Tools Ready
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Hero Banner -->
+<div class="lab-hero">
+  <div class="lab-hero-text">
+    <div class="lab-hero-eyebrow">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+      Authorized Penetration Testing Only
+    </div>
+    <h2>Complete VAPT & Red Team Platform</h2>
+    <p>{{ tool_count }} offensive security tools across 5 categories — Web, Network, OSINT, Social Engineering, and Red Team operations. All tools run with real subprocess execution where installed, with simulated fallback.</p>
+  </div>
+  <div class="lab-hero-stats">
+    <div class="hero-stat"><div class="hero-stat-val">{{ tool_count }}</div><div class="hero-stat-label">Tools</div></div>
+    <div class="hero-stat"><div class="hero-stat-val">5</div><div class="hero-stat-label">Categories</div></div>
+    <div class="hero-stat"><div class="hero-stat-val">{{ total }}</div><div class="hero-stat-label">Jobs Run</div></div>
+  </div>
+</div>
+
+<!-- Category Cards -->
+<div class="lab-categories">
+  {% set cat_data = [
+    ('web',     'Web Application',  'blue',   'sqlmap nikto nuclei owaspzap whatweb wpscan',                     'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'),
+    ('network', 'Network',          'green',  'Nmap Full Metasploit OpenVAS Bettercap CrackMapExec',             'M22 12H2 M5 12V5a2 2 0 012-2h10a2 2 0 012 2v7'),
+    ('osint',   'OSINT & Recon',    'cyan',   'Raccoon theHarvester PhoneSploit Seeker AIRAVAT',                 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0'),
+    ('social',  'Social Eng.',      'orange', 'SET Evilginx2 espoofer BeEF',                                     'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2'),
+    ('redteam', 'Red Team',         'red',    'PS Empire Sliver Mythic Cobalt Strike MHDDoS',                    'M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z'),
+  ] %}
+  {% for cat_id, label, color, tools_str, icon_path in cat_data %}
+  <a href="{{ url_for('pentest_category', category=cat_id) }}" class="lab-cat-card lab-cat-{{ color }}">
+    <div class="lab-cat-icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="{{ icon_path }}"/></svg>
+    </div>
+    <div class="lab-cat-label">{{ label }}</div>
+    <div class="lab-cat-tools">{{ tools_str }}</div>
+    <div class="lab-cat-arrow">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+<!-- Recent Jobs -->
+<div class="card card-dark" style="margin-top:24px">
+  <div class="card-head card-head-dark">
+    <span>Recent Jobs</span>
+    <a href="{{ url_for('export_pentest') }}" class="card-action-dark">Export CSV →</a>
+  </div>
+  <div class="card-body p0">
+    {% if jobs %}
+    <table class="data-table data-table-dark">
+      <thead><tr><th>Job ID</th><th>Tool</th><th>Category</th><th>Target</th><th>Status</th><th>Started</th></tr></thead>
+      <tbody>
+        {% for j in jobs %}
+        <tr>
+          <td class="mono muted-text small-text">{{ j.job_id }}</td>
+          <td><span class="badge badge-blue">{{ j.tool }}</span></td>
+          <td><span class="badge badge-slate">{{ j.category }}</span></td>
+          <td><code class="mono small-text">{{ j.target }}</code></td>
+          <td>
+            {% if j.status == 'completed' %}<span class="badge badge-green">✓ Done</span>
+            {% elif j.status == 'running' %}<span class="badge badge-amber">⟳ Running</span>
+            {% else %}<span class="badge badge-red">✗ Failed</span>{% endif %}
+          </td>
+          <td class="muted-text small-text">{{ j.started_at.strftime('%m/%d %H:%M') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state" style="padding:48px">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <p>No jobs yet — pick a category above and run your first tool.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Legal Banner -->
+<div style="margin-top:20px;padding:16px 20px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);border-radius:12px;display:flex;align-items:center;gap:12px">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  <span style="font-size:13px;color:#94a3b8"><strong style="color:#f87171">Legal Notice:</strong> All tools must only be used against systems you own or have explicit written authorization to test. Unauthorized use is a criminal offence under the Computer Fraud and Abuse Act, IT Act, and equivalent laws worldwide.</span>
+</div>
+{% endblock %}

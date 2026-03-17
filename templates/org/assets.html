@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% from "org/_nav.html" import org_nav %}
+{% block title %}SecOps AI — Assets{% endblock %}{% block page_title %}Asset Inventory{% endblock %}
+{% block sidebar_nav %}{{ org_nav('assets') }}{% endblock %}
+{% block content %}
+<div class="card card-dark"><div class="card-head card-head-dark"><span>Managed Assets</span><span class="badge badge-indigo">{{ assets|length }} total</span></div>
+<div class="card-body p0"><table class="data-table data-table-dark"><thead><tr><th>Hostname</th><th>IP</th><th>OS</th><th>Type</th><th>Department</th><th>Criticality</th><th>Status</th><th>Last Seen</th></tr></thead><tbody>
+{% for a in assets %}<tr><td><code class="mono">{{ a.hostname }}</code></td><td class="mono muted-text">{{ a.ip_address }}</td><td class="small-text">{{ a.os_type }}</td><td><span class="badge badge-slate">{{ a.asset_type }}</span></td><td class="small-text muted-text">{{ a.department }}</td><td><span class="sev-badge sev-{{ a.criticality|lower }}">{{ a.criticality }}</span></td><td><div class="status-indicator {% if a.status=='Online' %}status-online{% else %}status-offline{% endif %}"><span class="pulse-dot {% if a.status=='Online' %}pulse-green{% else %}pulse-red{% endif %}"></span>{{ a.status }}</div></td><td class="muted-text small-text">{{ a.last_seen.strftime('%H:%M') }}</td></tr>{% endfor %}
+</tbody></table></div></div>{% endblock %}

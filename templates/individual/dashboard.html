@@ -1,0 +1,30 @@
+{% extends "base.html" %}{% from "individual/_nav.html" import individual_nav %}
+{% block title %}RedTeam AI — Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block sidebar_nav %}{{ individual_nav('dashboard') }}{% endblock %}
+{% block topbar_right %}<a href="{{ url_for('individual_scan') }}" class="topbar-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>New Scan</a>{% endblock %}
+{% block content %}
+<div class="stats-row">
+  <div class="stat-card"><div class="stat-icon stat-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div><div class="stat-value">{{ total_scans }}</div><div class="stat-label">Total Scans</div></div>
+  <div class="stat-card"><div class="stat-icon stat-green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div class="stat-value">8</div><div class="stat-label">Tools Available</div></div>
+  <div class="stat-card"><div class="stat-icon stat-amber"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="stat-value">{{ logs|length }}</div><div class="stat-label">Recent Activity</div></div>
+  <div class="stat-card"><div class="stat-icon stat-purple"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><div class="stat-value">AI</div><div class="stat-label">Gemini Powered</div></div>
+</div>
+<div class="content-grid-2">
+  <div class="card"><div class="card-head"><span>Quick Launch</span><a href="{{ url_for('individual_scan') }}" class="card-action">Scanner →</a></div>
+  <div class="card-body">
+    <div class="tool-launch-grid">
+      {% for tid,name,desc,color in [('nmap','Nmap','Port Discovery','blue'),('recon','Whois/DNS','Domain Recon','green'),('nikto','Nikto','Web Scanner','amber'),('openvas','OpenVAS','Vuln Assessment','red'),('shodan','Shodan','Infrastructure','purple'),('harvester','theHarvester','Email OSINT','cyan'),('recon_ng','Recon-ng','OSINT Framework','orange'),('dorks','Dorks','Search Queries','pink')] %}
+      <a href="{{ url_for('individual_scan') }}?tool={{ tid }}" class="tool-launch-card tool-{{ color }}"><div class="tool-launch-name">{{ name }}</div><div class="tool-launch-desc">{{ desc }}</div></a>
+      {% endfor %}
+    </div>
+  </div></div>
+  <div class="card"><div class="card-head"><span>Recent Scans</span><a href="{{ url_for('individual_history') }}" class="card-action">All →</a></div>
+  <div class="card-body p0">
+    {% if logs %}<table class="data-table"><thead><tr><th>Target</th><th>Tool</th><th>Time</th></tr></thead><tbody>
+    {% for l in logs %}<tr><td><code class="mono">{{ l.target }}</code></td><td><span class="badge badge-blue">{{ l.tool_used }}</span></td><td class="muted-text small-text">{{ l.timestamp.strftime('%m/%d %H:%M') }}</td></tr>{% endfor %}
+    </tbody></table>{% else %}<div class="empty-state"><p>No scans yet.</p></div>{% endif %}
+  </div></div>
+</div>
+<div class="cta-banner cta-blue"><div class="cta-text"><strong>AI Red Team Assistant</strong><span>Ask the AI to simulate attacks, explain vulnerabilities, or generate offensive scenarios.</span></div><a href="{{ url_for('individual_chat') }}" class="cta-btn">Open AI Chat →</a></div>
+{% endblock %}

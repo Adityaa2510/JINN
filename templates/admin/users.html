@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Admin — Users{% endblock %}{% block page_title %}User Management{% endblock %}
+{% block body_class %}{% endblock %}
+{% block sidebar_nav %}
+<a href="{{ url_for('mode_selection') }}" class="nav-link"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Back to Platform</a>
+<a href="{{ url_for('admin_users') }}" class="nav-link nav-active"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>User Management</a>
+{% endblock %}
+{% block content %}
+<div class="content-grid-2">
+  <div class="card" style="grid-column:span 2">
+    <div class="card-head"><span>All Users</span><span class="badge badge-blue">{{ users|length }}</span></div>
+    <div class="card-body p0">
+      <table class="data-table"><thead><tr><th>Username</th><th>Role</th><th>Mode</th><th>Created</th><th>Status</th><th>Action</th></tr></thead><tbody>
+      {% for u in users %}
+      <tr>
+        <td><strong>{{ u.username }}</strong>{% if u.id==current_user.id %} <span class="badge badge-blue">You</span>{% endif %}</td>
+        <td><span class="badge {% if u.role=='admin' %}badge-red{% else %}badge-green{% endif %}">{{ u.role|title }}</span></td>
+        <td class="muted-text small-text">{{ u.mode or '—' }}</td>
+        <td class="muted-text small-text">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+        <td><div class="status-indicator {% if u.is_active_user %}status-online{% else %}status-offline{% endif %}"><span class="pulse-dot {% if u.is_active_user %}pulse-green{% else %}pulse-red{% endif %}"></span>{{ 'Active' if u.is_active_user else 'Disabled' }}</div></td>
+        <td>{% if u.id!=current_user.id %}<form method="POST" action="{{ url_for('admin_toggle_user',uid=u.id) }}" style="display:inline"><button type="submit" class="mini-btn {% if u.is_active_user %}mini-btn-red{% else %}mini-btn-green{% endif %}">{{ 'Disable' if u.is_active_user else 'Enable' }}</button></form>{% endif %}</td>
+      </tr>{% endfor %}
+      </tbody></table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><span>Create New User</span></div>
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('admin_create_user') }}">{{ form.hidden_tag() }}
+        <div class="field-group"><label class="field-label">Username</label>{{ form.username(class="field-input",placeholder="Username") }}{% if form.username.errors %}<div class="field-error">{{ form.username.errors[0] }}</div>{% endif %}</div>
+        <div class="field-group"><label class="field-label">Password</label>{{ form.password(class="field-input",placeholder="Min. 8 characters") }}{% if form.password.errors %}<div class="field-error">{{ form.password.errors[0] }}</div>{% endif %}</div>
+        <div class="field-group"><label class="field-label">Role</label>{{ form.role(class="field-select") }}</div>
+        <button type="submit" class="launch-btn" style="margin-top:8px">Create User</button>
+      </form>
+    </div>
+  </div>
+</div>{% endblock %}

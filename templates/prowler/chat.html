@@ -1,0 +1,72 @@
+{% extends "base.html" %}{% from "org/_nav.html" import org_nav %}
+{% block title %}SecOps AI — Prowler Chat{% endblock %}{% block page_title %}Prowler AI Analysis{% endblock %}
+{% block sidebar_nav %}{{ org_nav('prowler_chat') }}{% endblock %}
+{% block topbar_right %}
+<a href="{{ url_for('prowler_dashboard') }}" class="topbar-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>Back to Dashboard</a>
+{% if latest_scan %}<div class="topbar-badge" style="color:#818cf8"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>Scan Loaded: {{ latest_scan.provider|upper }}</div>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="chat-layout">
+  <div class="chat-messages chat-dark" id="chatMessages">
+    <div class="chat-row chat-ai">
+      <div class="chat-avatar" style="background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.2);color:#818cf8">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      </div>
+      <div class="chat-bubble-wrap">
+        <div class="chat-bubble bubble-ai-dark">
+          <div class="fmt-content">
+            <div class="fmt-header" style="color:#818cf8">Prowler AI Expert</div>
+            <div class="fmt-bullet"><span class="fmt-dot">▹</span><span>Cloud Security AI ready — Prowler findings loaded into context</span></div>
+            {% if latest_scan %}<div class="fmt-bullet"><span class="fmt-dot">▹</span><span>Latest scan: {{ latest_scan.provider|upper }} — {{ latest_scan.total_fail }} failures, {{ latest_scan.total_pass }} passed</span></div>{% endif %}
+            <div class="fmt-header fmt-header-green" style="margin-top:14px">Try asking:</div>
+            <div class="fmt-bullet"><span class="fmt-dot">▹</span><span>"What are the most critical findings I need to fix first?"</span></div>
+            <div class="fmt-bullet"><span class="fmt-dot">▹</span><span>"Which findings affect PCI-DSS compliance?"</span></div>
+            <div class="fmt-bullet"><span class="fmt-dot">▹</span><span>"Explain the S3 public access risk and how to fix it"</span></div>
+            <div class="fmt-bullet"><span class="fmt-dot">▹</span><span>"Generate a remediation plan for the IAM findings"</span></div>
+          </div>
+        </div>
+        <div class="chat-meta">Prowler AI · now</div>
+      </div>
+    </div>
+
+    {% for msg in messages %}
+    <div class="chat-row {% if msg.role=='user' %}chat-user{% else %}chat-ai{% endif %}">
+      {% if msg.role=='ai' %}
+      <div class="chat-avatar" style="background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.2);color:#818cf8">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+      </div>
+      {% endif %}
+      <div class="chat-bubble-wrap {% if msg.role=='user' %}chat-bubble-right{% endif %}">
+        {% if msg.role=='user' %}<div class="chat-bubble bubble-user-dark">{{ msg.content }}</div>
+        {% else %}<div class="chat-bubble bubble-ai-dark" data-raw="{{ msg.content|e }}"></div>{% endif %}
+        <div class="chat-meta {% if msg.role=='user' %}meta-right{% endif %}">{{ 'Analyst' if msg.role=='user' else 'Prowler AI' }} · {{ msg.timestamp.strftime('%H:%M') }}</div>
+      </div>
+    </div>
+    {% endfor %}
+
+    <div class="chat-row chat-ai hidden" id="typingIndicator">
+      <div class="chat-avatar" style="background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.2);color:#818cf8">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+      </div>
+      <div class="chat-bubble-wrap">
+        <div class="chat-bubble bubble-ai-dark typing-bubble">
+          <span class="typing-dot typing-indigo"></span><span class="typing-dot typing-indigo"></span><span class="typing-dot typing-indigo"></span>
+          <span class="typing-label">Analyzing Prowler findings...</span>
+        </div>
+      </div>
+    </div>
+    <div id="messagesEnd"></div>
+  </div>
+
+  <div class="chat-input-area chat-input-dark">
+    <form id="chatForm" class="chat-input-form">
+      <div class="chat-input-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div>
+      <input type="text" id="chatInput" class="chat-input dark-chat-input" placeholder="Ask about Prowler findings, compliance, or remediation steps..." autocomplete="off"/>
+      <button type="submit" id="chatSendBtn" class="chat-send-btn send-indigo">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}<script>initChat('/api/chat','prowler');</script>{% endblock %}

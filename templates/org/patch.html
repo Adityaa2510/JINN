@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% from "org/_nav.html" import org_nav %}
+{% block title %}SecOps AI — Patch Compliance{% endblock %}{% block page_title %}Patch Compliance{% endblock %}
+{% block sidebar_nav %}{{ org_nav('patch') }}{% endblock %}
+{% block content %}
+<div class="stats-row">
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-red"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="stat-value">{{ vulns|selectattr('is_kev')|list|length }}</div><div class="stat-label">CISA KEV</div></div>
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg></div><div class="stat-value">{{ vulns|selectattr('cvss_score','ge',9.0)|list|length }}</div><div class="stat-label">CVSS ≥ 9.0</div></div>
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-amber"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div class="stat-value">{{ vulns|selectattr('cvss_score','ge',7.0)|list|length }}</div><div class="stat-label">High+ CVEs</div></div>
+  <div class="stat-card stat-card-dark"><div class="stat-icon stat-green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div><div class="stat-value">{{ vulns|length }}</div><div class="stat-label">Total Tracked</div></div>
+</div>
+<div class="card card-dark"><div class="card-head card-head-dark"><span>Patch Priority Queue</span><span class="muted-text small-text">Ordered by KEV status, then CVSS score</span></div>
+<div class="card-body p0"><table class="data-table data-table-dark"><thead><tr><th>#</th><th>CVE ID</th><th>Vendor</th><th>CVSS</th><th>Risk</th><th>KEV</th><th>Priority</th></tr></thead><tbody>
+{% for v in vulns %}<tr><td class="muted-text small-text">{{ loop.index }}</td><td><code class="mono">{{ v.cve_id }}</code></td><td class="small-text">{{ v.vendor_product }}</td><td><span class="cvss-badge cvss-{% if v.cvss_score>=9 %}critical{% elif v.cvss_score>=7 %}high{% elif v.cvss_score>=4 %}medium{% else %}low{% endif %}">{{ v.cvss_score }}</span></td><td><span class="sev-badge sev-{{ v.risk_level|lower }}">{{ v.risk_level }}</span></td><td>{% if v.is_kev %}<span class="kev-tag">⚠ KEV</span>{% else %}<span class="muted-text">—</span>{% endif %}</td>
+<td>{% if v.is_kev or v.cvss_score>=9.0 %}<span class="priority-badge priority-immediate">Immediate</span>{% elif v.cvss_score>=7.0 %}<span class="priority-badge priority-7days">7 Days</span>{% else %}<span class="priority-badge priority-30days">30 Days</span>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div></div>{% endblock %}

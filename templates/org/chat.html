@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% from "org/_nav.html" import org_nav %}
+{% block title %}SecOps AI — SOC Chat{% endblock %}{% block page_title %}AI Analysis Console{% endblock %}
+{% block sidebar_nav %}{{ org_nav('chat') }}{% endblock %}
+{% block topbar_right %}<div class="topbar-badge badge-pink"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Splunk: Live</div>{% endblock %}
+{% block content %}
+<div class="chat-layout">
+  <div class="chat-messages chat-dark" id="chatMessages">
+    <div class="chat-row chat-ai"><div class="chat-avatar chat-avatar-indigo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg></div>
+    <div class="chat-bubble-wrap"><div class="chat-bubble bubble-ai-dark"><div class="fmt-content"><div class="fmt-header fmt-header-indigo">Alert Summary</div><div class="fmt-bullet"><span class="fmt-dot">▹</span><span>SOC Orchestration AI online — all connectors active</span></div><div class="fmt-bullet"><span class="fmt-dot">▹</span><span>Ready for SIEM queries, CVE correlation, and asset investigation</span></div><div class="fmt-header fmt-header-green" style="margin-top:14px">Recommended Action</div><div class="fmt-bullet"><span class="fmt-dot">▹</span><span>Try: "Investigate suspicious login attempts in Splunk"</span></div><div class="fmt-bullet"><span class="fmt-dot">▹</span><span>Try: "Which assets are vulnerable to Log4Shell?"</span></div></div></div><div class="chat-meta">AI Engine · now</div></div></div>
+    {% for msg in messages %}
+    <div class="chat-row {% if msg.role=='user' %}chat-user{% else %}chat-ai{% endif %}">
+      {% if msg.role=='ai' %}<div class="chat-avatar chat-avatar-indigo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg></div>{% endif %}
+      <div class="chat-bubble-wrap {% if msg.role=='user' %}chat-bubble-right{% endif %}">
+        {% if msg.role=='user' %}<div class="chat-bubble bubble-user-dark">{{ msg.content }}</div>{% else %}<div class="chat-bubble bubble-ai-dark" data-raw="{{ msg.content|e }}"></div>{% endif %}
+        <div class="chat-meta {% if msg.role=='user' %}meta-right{% endif %}">{{ 'Analyst' if msg.role=='user' else 'AI Engine' }} · {{ msg.timestamp.strftime('%H:%M') }}</div>
+      </div>
+    </div>{% endfor %}
+    <div class="chat-row chat-ai hidden" id="typingIndicator"><div class="chat-avatar chat-avatar-indigo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg></div><div class="chat-bubble-wrap"><div class="chat-bubble bubble-ai-dark typing-bubble"><span class="typing-dot typing-indigo"></span><span class="typing-dot typing-indigo"></span><span class="typing-dot typing-indigo"></span><span class="typing-label">Correlating telemetry...</span></div></div></div>
+    <div id="messagesEnd"></div>
+  </div>
+  <div class="chat-input-area chat-input-dark"><form id="chatForm" class="chat-input-form"><div class="chat-input-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div><input type="text" id="chatInput" class="chat-input dark-chat-input" placeholder="Ask AI to query SIEM logs, analyze CVEs, or investigate assets..." autocomplete="off"/><button type="submit" id="chatSendBtn" class="chat-send-btn send-indigo"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button></form></div>
+</div>
+{% endblock %}
+{% block extra_js %}<script>initChat('/api/chat','organization');</script>{% endblock %}
