@@ -1802,3 +1802,24 @@ AttributeError: 'Flask' object has no attribute '_get_current_object'
 2026-04-19 17:14:38,356:INFO:127.0.0.1 - - [19/Apr/2026 17:14:38] "POST /api/chat HTTP/1.1" 200 -
 2026-04-19 17:52:43,514:INFO: * Detected change in 'C:\\Users\\PC\\Downloads\\JINN\\JINN\\app.py', reloading
 2026-04-19 17:52:43,618:INFO: * Restarting with stat
+2026-04-19 18:10:41,484:INFO:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2026-04-19 18:10:41,484:INFO:[33mPress CTRL+C to quit[0m
+2026-04-19 18:10:41,488:INFO: * Restarting with stat
+2026-04-19 18:10:44,221:WARNING: * Debugger is active!
+2026-04-19 18:10:44,223:INFO: * Debugger PIN: 131-221-064
+2026-04-19 18:10:56,287:INFO:127.0.0.1 - - [19/Apr/2026 18:10:56] "[32mPOST /api/chat HTTP/1.1[0m" 302 -
+2026-04-19 18:10:56,311:INFO:127.0.0.1 - - [19/Apr/2026 18:10:56] "GET /login?next=/api/chat HTTP/1.1" 200 -
+2026-04-19 18:17:27,468:INFO:127.0.0.1 - - [19/Apr/2026 18:17:27] "[32mPOST /api/chat HTTP/1.1[0m" 302 -
+2026-04-19 18:17:27,477:INFO:127.0.0.1 - - [19/Apr/2026 18:17:27] "GET /login?next=/api/chat HTTP/1.1" 200 -
+2026-04-19 18:43:35,430:INFO:127.0.0.1 - - [19/Apr/2026 18:43:35] "[32mGET /individual/history HTTP/1.1[0m" 302 -
+2026-04-19 18:43:35,437:INFO:127.0.0.1 - - [19/Apr/2026 18:43:35] "GET /login?next=/individual/history HTTP/1.1" 200 -
+2026-04-19 18:43:35,508:INFO:127.0.0.1 - - [19/Apr/2026 18:43:35] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-19 18:43:38,100:INFO:127.0.0.1 - - [19/Apr/2026 18:43:38] "GET /login?next=/individual/history HTTP/1.1" 200 -
+2026-04-19 18:43:38,116:INFO:127.0.0.1 - - [19/Apr/2026 18:43:38] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-19 18:43:55,324:INFO:127.0.0.1 - - [19/Apr/2026 18:43:55] "[32mPOST /login?next=/individual/history HTTP/1.1[0m" 302 -
+2026-04-19 18:43:55,344:INFO:127.0.0.1 - - [19/Apr/2026 18:43:55] "GET /individual/history HTTP/1.1" 200 -
+2026-04-19 18:43:55,364:INFO:127.0.0.1 - - [19/Apr/2026 18:43:55] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-19 18:43:55,365:INFO:127.0.0.1 - - [19/Apr/2026 18:43:55] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-19 18:43:55,374:INFO:127.0.0.1 - - [19/Apr/2026 18:43:55] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-19 18:43:58,647:INFO:127.0.0.1 - - [19/Apr/2026 18:43:58] "GET /export/scan-history.csv HTTP/1.1" 200 -
