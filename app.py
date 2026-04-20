@@ -25,7 +25,7 @@ import os
 
 load_dotenv()          # reads .env from the current working dir
 # Optional: print to double‑check that values are present
-print("WORMGPT_API_KEY:", os.getenv("WORMGPT_API_KEY")[:4], "...")   # just a quick sanity check
+   # just a quick sanity check
 import requests
 from flask import (Flask, render_template, redirect, url_for, flash,
                    request, session, jsonify, Response)
@@ -991,84 +991,51 @@ from wormgpt_client import WormGPTClient
 wormgpt = WormGPTClient()
 
 class AIService:
-    """
-    Minimal wrapper that forwards the chat request to WormGPT.
-    Keeps the same public interface so the rest of the code can stay untouched.
-    """
 
     @staticmethod
-    def get_response(prompt: str, mode: str = "individual") -> str:
-        """
-        Forward the user prompt to the WormGPT client.
-
-        Parameters
-        ----------
-        prompt : str
-            Raw user input.
-        mode : str
-            One of 'individual', 'organization', or 'prowler'.
-            Determines the system prompt used.
-
-        Returns
-        -------
-        str
-            The assistant’s plain‑text answer.
-        """
-        try:
-            return wormgpt.chat(prompt, mode=mode)
-        except Exception as exc:
-            # Fallback: return a short error message – the frontend will display it.
-            return f"[WormGPT] Error: {exc}"
+    def get_system_prompt(mode):
+        sys_map = {
+            'individual':   INDIVIDUAL_PROMPT,
+            'organization': ORGANIZATION_PROMPT,
+            'prowler':      PROWLER_PROMPT,
+        }
+        return sys_map.get(mode, ORGANIZATION_PROMPT)
 
     @staticmethod
-    def _fallback(mode: str) -> str:
-        """
-        Legacy fallback (kept for reference).  
-        The new implementation no longer needs this, but it’s useful if you
-        want to keep the old “manual” prompts for quick testing.
-        """
-        if mode == "prowler":
-            return (
-                "[Executive Summary]\n"
-                "- Cloud security posture is HIGH RISK — 11 critical/high findings detected\n"
-                "- Root account lacks hardware MFA\n"
-                "- S3 bucket public access\n"
-                "\n[Critical Findings]\n"
-                "- iam_root_hardware_mfa_enabled: Root MFA not enforced\n"
-                "- s3_bucket_public_access: prod-data-bucket public\n"
-                "\n[Compliance Impact]\n"
-                "- CIS: 13 controls failing\n"
-                "- PCI-DSS: 7 controls failing\n"
-                "\n[Remediation Priority]\n"
-                "- 1. Enable hardware MFA on root\n"
-                "- 2. Block S3 public access\n"
-                "\n[ThreatScore Analysis]\n"
-                "- Score: 72/100 — CRITICAL\n"
-                "- Driven by: 4 critical IAM/network misconfigurations\n"
-                "- [Note: Set GEMINI_API_KEY for live AI analysis]"
-            )
-        elif mode == "individual":
-            return (
-                "[Recon Results]\n"
-                "- Open Ports: 22, 80, 443, 8080\n"
-                "- Detected Services: OpenSSH 8.4, Apache 2.4.51, nginx\n"
-                "\n[Simulated Offensive Path]\n"
-                "- SIMULATION: Port scan complete\n"
-                "- SIMULATION: Apache version fingerprinted\n"
-                "\n[Risk Level]\nMedium — Outdated Apache detected\n"
-                "\n[Educational Recommendation]\n- Update Apache\n"
-                "- Disable CGI modules\n"
-                "- [Note: Set GEMINI_API_KEY for live responses]"
-            )
-        else:
-            return (
-                "[Alert Summary]\n"
-                "- AI service unavailable\n"
-                "\n[Recommended Action]\n"
-                "- Run: ollama serve\n"
-                "- Run: ollama pull dolphin-llama3:8b\n"
-                "- Or set GEMINI_API_KEY in environment"
-            )
+    def get_response(prompt, mode):
+        key = app.config.get('OPENROUTER_API_KEY', '')
+        if key:
+            try:
+                return AIService._openrouter(prompt, mode, key)
+            except Exception as e:
+                logging.warning(f"OpenRouter failed: {e}")
+                return AIService._fallback(mode)
+        return AIService._fallback(mode)
+
+    @staticmethod
+    def _openrouter(prompt, mode, key):
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:5000",
+            "X-Title": "SecOps Platform"
+        }
+        payload = {
+            "model": "meta-llama/llama-3.2-3b-instruct:free",
+            "messages": [
+                {"role": "system", "content": AIService.get_system_prompt(mode)},
+                {"role": "user",   "content": prompt}
+            ]
+        }
+        r = requests.post(url, json=payload, headers=headers, timeout=30)
+        r.raise_for_status()
+        return r.json()['choices'][0]['message']['content']
+
+    @staticmethod
+    def _fallback(mode):
+        return "[AI Unavailable] Check your OPENROUTER_API_KEY in .env"
+
 # ══════════════════════════════════════════════════════════════
 # 8. SEED DATA
 # ══════════════════════════════════════════════════════════════

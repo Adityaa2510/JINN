@@ -1823,3 +1823,103 @@ AttributeError: 'Flask' object has no attribute '_get_current_object'
 2026-04-19 18:43:55,365:INFO:127.0.0.1 - - [19/Apr/2026 18:43:55] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
 2026-04-19 18:43:55,374:INFO:127.0.0.1 - - [19/Apr/2026 18:43:55] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
 2026-04-19 18:43:58,647:INFO:127.0.0.1 - - [19/Apr/2026 18:43:58] "GET /export/scan-history.csv HTTP/1.1" 200 -
+2026-04-20 21:45:50,971:INFO:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2026-04-20 21:45:50,971:INFO:[33mPress CTRL+C to quit[0m
+2026-04-20 21:45:50,975:INFO: * Restarting with stat
+2026-04-20 21:45:53,630:WARNING: * Debugger is active!
+2026-04-20 21:45:53,690:INFO: * Debugger PIN: 131-221-064
+2026-04-20 21:45:59,197:INFO:127.0.0.1 - - [20/Apr/2026 21:45:59] "[32mGET / HTTP/1.1[0m" 302 -
+2026-04-20 21:45:59,211:INFO:127.0.0.1 - - [20/Apr/2026 21:45:59] "GET /login?next=/ HTTP/1.1" 200 -
+2026-04-20 21:45:59,261:INFO:127.0.0.1 - - [20/Apr/2026 21:45:59] "GET /static/css/styles.css HTTP/1.1" 200 -
+2026-04-20 21:46:00,770:INFO:127.0.0.1 - - [20/Apr/2026 21:46:00] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+2026-04-20 21:46:13,353:INFO:127.0.0.1 - - [20/Apr/2026 21:46:13] "[32mPOST /login?next=/ HTTP/1.1[0m" 302 -
+2026-04-20 21:46:13,362:INFO:127.0.0.1 - - [20/Apr/2026 21:46:13] "GET / HTTP/1.1" 200 -
+2026-04-20 21:46:13,386:INFO:127.0.0.1 - - [20/Apr/2026 21:46:13] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 21:46:17,311:INFO:127.0.0.1 - - [20/Apr/2026 21:46:17] "[32mGET /set-mode/individual HTTP/1.1[0m" 302 -
+2026-04-20 21:46:17,336:INFO:127.0.0.1 - - [20/Apr/2026 21:46:17] "GET /individual HTTP/1.1" 200 -
+2026-04-20 21:46:17,354:INFO:127.0.0.1 - - [20/Apr/2026 21:46:17] "GET /static/js/app.js HTTP/1.1" 200 -
+2026-04-20 21:46:17,354:INFO:127.0.0.1 - - [20/Apr/2026 21:46:17] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 21:46:17,368:INFO:127.0.0.1 - - [20/Apr/2026 21:46:17] "GET /static/js/app.js HTTP/1.1" 200 -
+2026-04-20 21:46:21,075:INFO:127.0.0.1 - - [20/Apr/2026 21:46:21] "GET /individual/chat HTTP/1.1" 200 -
+2026-04-20 21:46:21,090:INFO:127.0.0.1 - - [20/Apr/2026 21:46:21] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 21:46:21,092:INFO:127.0.0.1 - - [20/Apr/2026 21:46:21] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 21:46:21,105:INFO:127.0.0.1 - - [20/Apr/2026 21:46:21] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 21:46:24,844:INFO:127.0.0.1 - - [20/Apr/2026 21:46:24] "POST /api/chat HTTP/1.1" 200 -
+2026-04-20 22:31:39,465:INFO:127.0.0.1 - - [20/Apr/2026 22:31:39] "GET /individual/chat HTTP/1.1" 200 -
+2026-04-20 22:31:39,483:INFO:127.0.0.1 - - [20/Apr/2026 22:31:39] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:31:39,484:INFO:127.0.0.1 - - [20/Apr/2026 22:31:39] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:31:39,490:INFO:127.0.0.1 - - [20/Apr/2026 22:31:39] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:31:43,369:INFO:127.0.0.1 - - [20/Apr/2026 22:31:43] "POST /api/chat HTTP/1.1" 200 -
+2026-04-20 22:31:47,032:INFO:127.0.0.1 - - [20/Apr/2026 22:31:47] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:31:47,046:INFO:127.0.0.1 - - [20/Apr/2026 22:31:47] "[33mGET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1[0m" 404 -
+2026-04-20 22:32:43,462:INFO:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2026-04-20 22:32:43,462:INFO:[33mPress CTRL+C to quit[0m
+2026-04-20 22:32:43,463:INFO: * Restarting with stat
+2026-04-20 22:32:46,221:WARNING: * Debugger is active!
+2026-04-20 22:32:46,223:INFO: * Debugger PIN: 131-221-064
+2026-04-20 22:32:47,118:INFO:127.0.0.1 - - [20/Apr/2026 22:32:47] "[32mGET /individual/chat HTTP/1.1[0m" 302 -
+2026-04-20 22:32:47,132:INFO:127.0.0.1 - - [20/Apr/2026 22:32:47] "GET /login?next=/individual/chat HTTP/1.1" 200 -
+2026-04-20 22:32:47,159:INFO:127.0.0.1 - - [20/Apr/2026 22:32:47] "[33mGET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1[0m" 404 -
+2026-04-20 22:32:47,219:INFO:127.0.0.1 - - [20/Apr/2026 22:32:47] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:33:05,663:INFO:127.0.0.1 - - [20/Apr/2026 22:33:05] "[32mPOST /login?next=/individual/chat HTTP/1.1[0m" 302 -
+2026-04-20 22:33:05,689:INFO:127.0.0.1 - - [20/Apr/2026 22:33:05] "GET /individual/chat HTTP/1.1" 200 -
+2026-04-20 22:33:05,716:INFO:127.0.0.1 - - [20/Apr/2026 22:33:05] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:33:05,717:INFO:127.0.0.1 - - [20/Apr/2026 22:33:05] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:33:05,731:INFO:127.0.0.1 - - [20/Apr/2026 22:33:05] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:33:11,972:ERROR:OpenRouter request failed
+Traceback (most recent call last):
+  File "C:\Users\PC\Downloads\JINN\JINN\wormgpt_client.py", line 118, in chat
+    r.raise_for_status()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\PC\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\requests\models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+2026-04-20 22:33:11,995:INFO:127.0.0.1 - - [20/Apr/2026 22:33:11] "POST /api/chat HTTP/1.1" 200 -
+2026-04-20 22:33:23,948:INFO:127.0.0.1 - - [20/Apr/2026 22:33:23] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:33:23,966:INFO:127.0.0.1 - - [20/Apr/2026 22:33:23] "[33mGET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1[0m" 404 -
+2026-04-20 22:35:09,896:INFO:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2026-04-20 22:35:09,896:INFO:[33mPress CTRL+C to quit[0m
+2026-04-20 22:35:09,896:INFO: * Restarting with stat
+2026-04-20 22:35:12,574:WARNING: * Debugger is active!
+2026-04-20 22:35:12,577:INFO: * Debugger PIN: 131-221-064
+2026-04-20 22:35:14,958:INFO:127.0.0.1 - - [20/Apr/2026 22:35:14] "GET /individual/chat HTTP/1.1" 200 -
+2026-04-20 22:35:15,035:INFO:127.0.0.1 - - [20/Apr/2026 22:35:15] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:35:15,036:INFO:127.0.0.1 - - [20/Apr/2026 22:35:15] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:35:15,042:INFO:127.0.0.1 - - [20/Apr/2026 22:35:15] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:35:19,783:INFO:127.0.0.1 - - [20/Apr/2026 22:35:19] "GET /individual/chat HTTP/1.1" 200 -
+2026-04-20 22:35:19,796:INFO:127.0.0.1 - - [20/Apr/2026 22:35:19] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:35:19,802:INFO:127.0.0.1 - - [20/Apr/2026 22:35:19] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:35:19,809:INFO:127.0.0.1 - - [20/Apr/2026 22:35:19] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:50:18,939:INFO: * Detected change in 'C:\\Users\\PC\\Downloads\\JINN\\JINN\\app.py', reloading
+2026-04-20 22:50:19,040:INFO: * Restarting with stat
+2026-04-20 22:50:21,759:WARNING: * Debugger is active!
+2026-04-20 22:50:21,760:INFO: * Debugger PIN: 131-221-064
+2026-04-20 22:50:36,034:INFO:[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2026-04-20 22:50:36,034:INFO:[33mPress CTRL+C to quit[0m
+2026-04-20 22:50:36,035:INFO: * Restarting with stat
+2026-04-20 22:50:38,675:WARNING: * Debugger is active!
+2026-04-20 22:50:38,676:INFO: * Debugger PIN: 131-221-064
+2026-04-20 22:50:46,497:INFO:127.0.0.1 - - [20/Apr/2026 22:50:46] "GET /individual/chat HTTP/1.1" 200 -
+2026-04-20 22:50:46,587:INFO:127.0.0.1 - - [20/Apr/2026 22:50:46] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:50:46,588:INFO:127.0.0.1 - - [20/Apr/2026 22:50:46] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:50:46,594:INFO:127.0.0.1 - - [20/Apr/2026 22:50:46] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:50:51,560:INFO:127.0.0.1 - - [20/Apr/2026 22:50:51] "[32mGET /logout HTTP/1.1[0m" 302 -
+2026-04-20 22:50:51,568:INFO:127.0.0.1 - - [20/Apr/2026 22:50:51] "GET /login HTTP/1.1" 200 -
+2026-04-20 22:50:51,584:INFO:127.0.0.1 - - [20/Apr/2026 22:50:51] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:51:02,794:INFO:127.0.0.1 - - [20/Apr/2026 22:51:02] "[32mPOST /login HTTP/1.1[0m" 302 -
+2026-04-20 22:51:02,800:INFO:127.0.0.1 - - [20/Apr/2026 22:51:02] "GET / HTTP/1.1" 200 -
+2026-04-20 22:51:02,817:INFO:127.0.0.1 - - [20/Apr/2026 22:51:02] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:51:04,071:INFO:127.0.0.1 - - [20/Apr/2026 22:51:04] "[32mGET /set-mode/individual HTTP/1.1[0m" 302 -
+2026-04-20 22:51:04,088:INFO:127.0.0.1 - - [20/Apr/2026 22:51:04] "GET /individual HTTP/1.1" 200 -
+2026-04-20 22:51:04,104:INFO:127.0.0.1 - - [20/Apr/2026 22:51:04] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:51:04,105:INFO:127.0.0.1 - - [20/Apr/2026 22:51:04] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:51:04,246:INFO:127.0.0.1 - - [20/Apr/2026 22:51:04] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:51:05,067:INFO:127.0.0.1 - - [20/Apr/2026 22:51:05] "GET /individual/chat HTTP/1.1" 200 -
+2026-04-20 22:51:05,083:INFO:127.0.0.1 - - [20/Apr/2026 22:51:05] "[36mGET /static/css/styles.css HTTP/1.1[0m" 304 -
+2026-04-20 22:51:05,086:INFO:127.0.0.1 - - [20/Apr/2026 22:51:05] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:51:05,096:INFO:127.0.0.1 - - [20/Apr/2026 22:51:05] "[36mGET /static/js/app.js HTTP/1.1[0m" 304 -
+2026-04-20 22:51:09,468:INFO:127.0.0.1 - - [20/Apr/2026 22:51:09] "POST /api/chat HTTP/1.1" 200 -
